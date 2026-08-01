@@ -1,0 +1,152 @@
+
+erDiagram
+    USERS ||--o{ TRIPS : owns
+
+    PROVINCES ||--o{ PLACES : contains
+
+    TRIPS ||--o{ TRIP_STOPS : contains
+    PLACES ||--o{ TRIP_STOPS : visited_at
+
+    TRIP_STOPS ||--o| PLACE_REVIEWS : has_review
+
+    TRIPS ||--o{ IMAGES : has
+    TRIP_STOPS ||--o{ IMAGES : contains
+
+    TRIPS ||--o{ TRIP_TAGS : has
+    TAGS ||--o{ TRIP_TAGS : assigned_to
+
+    PLACES ||--o{ PLACE_TAGS : has
+    TAGS ||--o{ PLACE_TAGS : assigned_to
+
+    USERS {
+        bigint id PK
+        varchar username
+        varchar email
+        varchar password_hash
+        varchar display_name
+        text avatar_url
+        text bio
+        boolean is_deleted
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    PROVINCES {
+        bigint id PK
+        varchar country_code
+        varchar code
+        varchar name
+        varchar slug
+        double center_latitude
+        double center_longitude
+        boolean is_deleted
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    PLACES {
+        bigint id PK
+        bigint province_id FK
+        varchar name
+        varchar slug
+        text description
+        varchar district
+        varchar ward
+        text address
+        double latitude
+        double longitude
+        text website_url
+        text map_url
+        boolean is_deleted
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    TRIPS {
+        bigint id PK
+        bigint user_id FK
+        varchar title
+        varchar slug
+        text description
+        text thumbnail_url
+        smallint status
+        date start_date
+        date end_date
+        boolean is_public
+        boolean is_deleted
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    TRIP_STOPS {
+        bigint id PK
+        bigint trip_id FK
+        bigint place_id FK
+        integer visit_order
+        timestamptz arrived_at
+        timestamptz departed_at
+        varchar title
+        text note
+        boolean is_deleted
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    PLACE_REVIEWS {
+        bigint id PK
+        bigint trip_stop_id FK
+        smallint rating
+        smallint revisit_status
+        boolean is_favorite
+        text note
+        text warning_note
+        boolean is_deleted
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    IMAGES {
+        bigint id PK
+        bigint trip_id FK
+        bigint trip_stop_id FK
+        text image_url
+        text thumbnail_url
+        varchar original_filename
+        text description
+        timestamptz captured_at
+        double latitude
+        double longitude
+        integer width
+        integer height
+        bigint file_size
+        varchar mime_type
+        integer sort_order
+        boolean is_cover
+        boolean is_favorite
+        jsonb ai_tags
+        boolean is_deleted
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    TAGS {
+        bigint id PK
+        varchar name
+        varchar slug
+        text description
+        boolean is_deleted
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    TRIP_TAGS {
+        bigint trip_id PK, FK
+        bigint tag_id PK, FK
+        timestamptz created_at
+    }
+
+    PLACE_TAGS {
+        bigint place_id PK, FK
+        bigint tag_id PK, FK
+        timestamptz created_at
+    }
