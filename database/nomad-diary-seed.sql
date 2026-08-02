@@ -9,6 +9,7 @@ BEGIN;
 SET search_path TO nomad_diary, public;
 
 TRUNCATE TABLE
+    auth_sessions,
     place_tags,
     trip_tags,
     images,
@@ -332,6 +333,7 @@ SELECT setval(pg_get_serial_sequence('tags', 'id'), COALESCE((SELECT MAX(id) FRO
 -- Quick verification
 SELECT
     (SELECT COUNT(*) FROM users) AS users,
+    (SELECT COUNT(*) FROM auth_sessions) AS auth_sessions,
     (SELECT COUNT(*) FROM trips) AS trips,
     (SELECT COUNT(*) FROM provinces) AS provinces,
     (SELECT COUNT(*) FROM places) AS places,
@@ -344,6 +346,7 @@ COMMIT;
 
 -- Expected highlights:
 -- - User 1 owns 6 trips.
+-- - No auth sessions are seeded; login and refresh flows create them at runtime.
 -- - Hồ Xuân Hương, Langbiang, Chợ Đà Lạt, Hồ Tuyền Lâm are revisited.
 -- - Phố cổ Đồng Văn and Bãi Sao are visited twice within the same trip.
 -- - Some places are marked NOT_RECOMMENDED (revisit_status = 3).

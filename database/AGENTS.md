@@ -6,6 +6,7 @@
 
 Nomad Diary is a personal travel diary application used to store:
 
+- Authentication sessions
 - Trips
 - Stops within each trip
 - Reusable places
@@ -26,6 +27,7 @@ The primary purpose is not to build a public social network. The application sho
 
 ```text
 User
+├── Auth Sessions
 └── Trips
     ├── Trip Stops
     │   ├── Place
@@ -37,6 +39,13 @@ User
 ```
 
 ### Core concepts
+
+#### Auth Session
+
+One login or refresh-token session for a user. A user may have multiple active
+sessions for different devices. Store only a hash of the refresh token, never
+the raw token. Logout, password changes, account deletion, and refresh-token
+rotation revoke sessions through `revoked_at`.
 
 #### Trip
 
@@ -178,6 +187,7 @@ Main tables:
 
 ```text
 users
+auth_sessions
 provinces
 places
 trips
@@ -194,6 +204,7 @@ place_tags
 ```mermaid
 erDiagram
     USERS ||--o{ TRIPS : owns
+    USERS ||--o{ AUTH_SESSIONS : has
 
     PROVINCES ||--o{ PLACES : contains
 
@@ -222,6 +233,16 @@ erDiagram
 - Email must be unique among active users.
 - Password hashes must never be returned by public APIs.
 - Seed passwords are only dummy values and must not be used in production.
+
+### Auth Sessions
+
+- An auth session belongs to one user.
+- A user may have multiple sessions for different devices.
+- Store only `refresh_token_hash`; never store or log the raw refresh token.
+- Active sessions require `revoked_at IS NULL` and `expires_at > now()`.
+- Refresh-token rotation revokes the old session and creates a new session in one transaction.
+- Logout revokes the current session; password changes and account deletion revoke every session for the user.
+- Hard-deleting a user cascades to their auth sessions.
 
 ### Trips
 
@@ -355,9 +376,14 @@ A province is considered visited when the user has at least one active trip stop
 ### Authentication
 
 ```text
+POST /api/auth/register
 POST /api/auth/login
 POST /api/auth/logout
+POST /api/auth/refresh-token
 GET  /api/auth/me
+PATCH /api/auth/me
+PATCH /api/auth/change-password
+DELETE /api/auth/account
 ```
 
 ### Trips
@@ -561,6 +587,7 @@ nomad-diary-seed.sql
 The seed currently contains:
 
 - 1 user
+- 0 auth sessions (sessions are created at runtime by authentication flows)
 - 6 trips
 - 10 provinces
 - 24 places
@@ -640,6 +667,8 @@ Do not implement future features unless explicitly requested.
 - Validate all identifiers and request bodies.
 - Use parameterized SQL queries.
 - Never build SQL by concatenating untrusted input.
+- Never store, return, or log raw refresh tokens or password hashes.
+- Revoke and rotate auth sessions transactionally.
 - Always filter by the authenticated user's ownership.
 - Do not expose another user's private trips.
 - Do not return soft-deleted rows.
@@ -684,9 +713,10 @@ nomad-diary/
 │   │   └── shared/
 │   └── tests/
 ├── database/
-│   ├── schema.sql
+│   ├── nomad-diary.sql
 │   ├── nomad-diary-seed.sql
 │   └── migrations/
+│       └── 001_auth_sessions.sql
 ├── AGENTS.md
 └── README.md
 ```
@@ -697,6 +727,8 @@ nomad-diary/
 
 Before modifying code or the database, confirm:
 
+- Are refresh tokens stored only as hashes and rotated transactionally?
+- Do logout, password changes, and account deletion revoke the correct sessions?
 - Is this a reusable place or a specific visit?
 - Does the change preserve multiple visits to the same place?
 - Does the query filter by the authenticated user?
