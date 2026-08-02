@@ -714,8 +714,7 @@ nomad-diary/
 │   └── tests/
 ├── database/
 │   ├── nomad-diary.sql
-│   ├── nomad-diary-seed.sql
-│   └── migrations/
+│   └── nomad-diary-seed.sql
 │       └── 001_auth_sessions.sql
 ├── AGENTS.md
 └── README.md
