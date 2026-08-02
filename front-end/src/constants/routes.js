@@ -1,0 +1,31 @@
+export const ROUTE_NAME = Object.freeze({
+    HOME: 'home',
+    LOGIN: 'login',
+    REGISTER: 'register',
+    TRIPS: 'trips',
+    TRIP_CREATE: 'trip-create',
+    TRIP_DETAIL: 'trip-detail',
+    TRIP_EDIT: 'trip-edit',
+    TRIP_STOP_REVIEW: 'trip-stop-review',
+    PROVINCES: 'provinces',
+    PROVINCE_DETAIL: 'province-detail',
+    PROFILE: 'profile',
+    CHANGE_PASSWORD: 'change-password',
+    NOT_FOUND: 'not-found',
+})
+
+export const ROUTE_PATH = Object.freeze({
+    HOME: '/',
+    LOGIN: '/login',
+    REGISTER: '/register',
+    TRIPS: '/trips',
+    TRIP_CREATE: '/trips/new',
+    TRIP_DETAIL: '/trips/:id',
+    TRIP_EDIT: '/trips/:id/edit',
+    TRIP_STOP_REVIEW: '/trip-stops/:tripStopId/review',
+    PROVINCES: '/provinces',
+    PROVINCE_DETAIL: '/provinces/:id',
+    PROFILE: '/profile',
+    CHANGE_PASSWORD: '/profile/change-password',
+    NOT_FOUND: '/:pathMatch(.*)*',
+})
