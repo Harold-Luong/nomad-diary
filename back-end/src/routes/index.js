@@ -1,6 +1,7 @@
 import { Router } from "express";
 
 import authRouter from "../modules/auth/auth.routes.js";
+import provincesRouter from "../modules/provinces/provinces.routes.js";
 import reviewsRouter from "../modules/reviews/reviews.routes.js";
 import tripStopsRouter, {
     tripStopsByTripRouter,
@@ -30,6 +31,7 @@ router.get(
     }),
 );
 router.use("/auth", authRouter);
+router.use("/provinces", provincesRouter);
 router.use("/trips", tripStopsByTripRouter);
 router.use("/trips", tripsRouter);
 router.use("/trip-stops", reviewsRouter);

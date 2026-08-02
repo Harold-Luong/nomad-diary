@@ -3,10 +3,12 @@ import swaggerJsdoc from "swagger-jsdoc";
 import {
     REVISIT_STATUS,
     REVISIT_STATUS_VALUES,
+    TRIP_SORT_VALUES,
     TRIP_STATUS,
     TRIP_STATUS_VALUES,
 } from "../shared/constants/domain.js";
 import { ERRORS } from "../shared/constants/errors.js";
+import { PAGINATION } from "../shared/pagination/pagination.js";
 
 const successResponse = (description = "Successful response") => ({
     description,
@@ -36,11 +38,12 @@ const definition = {
         description:
             "REST API for a private travel diary. Private data is always scoped to the authenticated user.",
     },
-    servers: [{ url: "http://localhost:3000", description: "Local development" }],
+    servers: [{ url: "/", description: "Current server" }],
     tags: [
         { name: "Health" },
         { name: "Authentication" },
         { name: "Trips" },
+        { name: "Provinces" },
         { name: "Trip stops" },
         { name: "Reviews" },
     ],
@@ -140,13 +143,14 @@ const definition = {
                     title: { type: "string", example: "Da Lat 2026" },
                     slug: { type: "string", example: "da-lat-2026" },
                     description: { type: "string", nullable: true },
+                    thumbnailUrl: { type: "string", format: "uri", nullable: true },
                     status: {
                         type: "integer",
                         enum: TRIP_STATUS_VALUES,
                         default: TRIP_STATUS.DRAFT,
                     },
-                    startDate: { type: "string", format: "date" },
-                    endDate: { type: "string", format: "date" },
+                    startDate: { type: "string", format: "date", nullable: true },
+                    endDate: { type: "string", format: "date", nullable: true },
                     isPublic: { type: "boolean", default: false },
                 },
             },
@@ -162,6 +166,74 @@ const definition = {
                     startDate: { type: "string", format: "date", nullable: true },
                     endDate: { type: "string", format: "date", nullable: true },
                     isPublic: { type: "boolean" },
+                },
+            },
+            ProvinceTracking: {
+                type: "object",
+                properties: {
+                    id: { type: "string", example: "1" },
+                    countryCode: { type: "string", example: "VN" },
+                    code: {
+                        type: "string",
+                        example: "68",
+                        description: "Stable code used to match the frontend GeoJSON",
+                    },
+                    name: { type: "string", example: "Lâm Đồng" },
+                    slug: { type: "string", example: "lam-dong" },
+                    centerLatitude: { type: "number", nullable: true },
+                    centerLongitude: { type: "number", nullable: true },
+                    visited: { type: "boolean", example: true },
+                    tripCount: { type: "integer", example: 3 },
+                    placeCount: {
+                        type: "integer",
+                        example: 8,
+                        description: "Number of unique visited places",
+                    },
+                    visitCount: {
+                        type: "integer",
+                        example: 12,
+                        description: "Number of active trip stops",
+                    },
+                    firstVisitedAt: {
+                        type: "string",
+                        format: "date-time",
+                        nullable: true,
+                    },
+                    lastVisitedAt: {
+                        type: "string",
+                        format: "date-time",
+                        nullable: true,
+                    },
+                },
+            },
+            ProvincePlaceTracking: {
+                type: "object",
+                properties: {
+                    id: { type: "string", example: "10" },
+                    provinceId: { type: "string", example: "1" },
+                    name: { type: "string", example: "Hồ Xuân Hương" },
+                    slug: { type: "string", example: "ho-xuan-huong" },
+                    description: { type: "string", nullable: true },
+                    district: { type: "string", nullable: true },
+                    ward: { type: "string", nullable: true },
+                    address: { type: "string", nullable: true },
+                    latitude: { type: "number", example: 11.9416 },
+                    longitude: { type: "number", example: 108.4383 },
+                    websiteUrl: { type: "string", format: "uri", nullable: true },
+                    mapUrl: { type: "string", format: "uri", nullable: true },
+                    visited: { type: "boolean", example: true },
+                    tripCount: { type: "integer", example: 2 },
+                    visitCount: { type: "integer", example: 3 },
+                    firstVisitedAt: {
+                        type: "string",
+                        format: "date-time",
+                        nullable: true,
+                    },
+                    lastVisitedAt: {
+                        type: "string",
+                        format: "date-time",
+                        nullable: true,
+                    },
                 },
             },
             TripStopInput: {
@@ -337,11 +409,12 @@ const definition = {
                 security: bearer,
                 summary: "List the caller's trips",
                 parameters: [
-                    { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-                    { name: "pageSize", in: "query", schema: { type: "integer", default: 20, maximum: 100 } },
+                    { name: "page", in: "query", schema: { type: "integer", default: PAGINATION.DEFAULT_PAGE } },
+                    { name: "pageSize", in: "query", schema: { type: "integer", default: PAGINATION.DEFAULT_PAGE_SIZE, maximum: PAGINATION.MAX_PAGE_SIZE } },
                     { name: "status", in: "query", schema: { type: "integer", enum: TRIP_STATUS_VALUES } },
                     { name: "year", in: "query", schema: { type: "integer" } },
                     { name: "search", in: "query", schema: { type: "string" } },
+                    { name: "sort", in: "query", schema: { type: "string", enum: TRIP_SORT_VALUES } },
                 ],
                 responses: { 200: successResponse(), 401: errorResponse("Unauthenticated") },
             },
@@ -367,6 +440,57 @@ const definition = {
                 responses: { 200: successResponse(), 404: errorResponse("Not found") },
             },
             delete: { tags: ["Trips"], security: bearer, summary: "Soft-delete a trip", responses: { 204: { description: "Deleted" }, 404: errorResponse("Not found") } },
+        },
+        "/api/provinces": {
+            get: {
+                tags: ["Provinces"],
+                security: bearer,
+                summary: "List provinces with tracking statistics for the caller",
+                parameters: [
+                    { name: "page", in: "query", schema: { type: "integer", default: PAGINATION.DEFAULT_PAGE } },
+                    { name: "pageSize", in: "query", schema: { type: "integer", default: PAGINATION.DEFAULT_PAGE_SIZE, maximum: PAGINATION.MAX_PAGE_SIZE } },
+                    { name: "countryCode", in: "query", schema: { type: "string", minLength: 2, maxLength: 2, example: "VN" } },
+                    { name: "search", in: "query", schema: { type: "string" } },
+                    { name: "visited", in: "query", schema: { type: "boolean" } },
+                ],
+                responses: { 200: successResponse(), 401: errorResponse("Unauthenticated") },
+            },
+        },
+        "/api/provinces/visited": {
+            get: {
+                tags: ["Provinces"],
+                security: bearer,
+                summary: "List visited provinces for map highlighting",
+                description: "A province is visited when the caller owns at least one active trip stop at an active place in that province.",
+                parameters: [
+                    { name: "countryCode", in: "query", schema: { type: "string", minLength: 2, maxLength: 2, example: "VN" } },
+                ],
+                responses: { 200: successResponse(), 401: errorResponse("Unauthenticated") },
+            },
+        },
+        "/api/provinces/{id}": {
+            parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+            get: {
+                tags: ["Provinces"],
+                security: bearer,
+                summary: "Get a province with the caller's tracking statistics",
+                responses: { 200: successResponse(), 404: errorResponse("Province not found") },
+            },
+        },
+        "/api/provinces/{id}/places": {
+            parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+            get: {
+                tags: ["Provinces"],
+                security: bearer,
+                summary: "List places in a province with tracking statistics",
+                parameters: [
+                    { name: "page", in: "query", schema: { type: "integer", default: PAGINATION.DEFAULT_PAGE } },
+                    { name: "pageSize", in: "query", schema: { type: "integer", default: PAGINATION.DEFAULT_PAGE_SIZE, maximum: PAGINATION.MAX_PAGE_SIZE } },
+                    { name: "search", in: "query", schema: { type: "string" } },
+                    { name: "visited", in: "query", schema: { type: "boolean" }, description: "Use true to return only places the caller has visited" },
+                ],
+                responses: { 200: successResponse(), 404: errorResponse("Province not found") },
+            },
         },
         "/api/trips/{tripId}/stops": {
             parameters: [{ name: "tripId", in: "path", required: true, schema: { type: "string" } }],

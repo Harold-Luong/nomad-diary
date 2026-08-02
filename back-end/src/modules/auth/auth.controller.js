@@ -1,6 +1,5 @@
-import { AuthenticationError } from "../../shared/errors/app-error.js";
-import { ERRORS, errorArgs } from "../../shared/constants/errors.js";
 import { asyncHandler } from "../../shared/http/async-handler.js";
+import { getAuthenticatedUserId } from "../../shared/http/auth-context.js";
 import { sendNoContent, sendSuccess } from "../../shared/http/response.js";
 import * as authService from "./auth.service.js";
 
@@ -9,14 +8,6 @@ function getRequestInfo(req) {
         userAgent: req.get("user-agent")?.slice(0, 1000) || null,
         ipAddress: req.ip?.slice(0, 64) || null,
     };
-}
-
-function getAuthenticatedUserId(req) {
-    if (!req.auth?.userId) {
-        throw new AuthenticationError(...errorArgs(ERRORS.UNAUTHENTICATED));
-    }
-
-    return req.auth.userId;
 }
 
 export const register = asyncHandler(async (req, res) => {

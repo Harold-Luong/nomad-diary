@@ -110,6 +110,8 @@ export const ERRORS = Object.freeze({
         "endDate cannot be before startDate",
     ),
 
+    PROVINCE_NOT_FOUND: defineError("PROVINCE_NOT_FOUND", "Province not found"),
+
     TRIP_STOP_NOT_FOUND: defineError(
         "TRIP_STOP_NOT_FOUND",
         "Trip stop not found",

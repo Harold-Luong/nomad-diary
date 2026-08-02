@@ -4,21 +4,11 @@ import {
     REVISIT_STATUS,
     REVISIT_STATUS_VALUES,
 } from "../../shared/constants/domain.js";
+import { positiveIntegerIdSchema } from "../../shared/validation/schemas.js";
 
-function isPositiveIntegerString(value) {
-    try {
-        return BigInt(value) > 0n;
-    } catch {
-        return false;
-    }
-}
-
-const id = z
-    .string()
-    .regex(/^\d+$/, "Must be a positive integer")
-    .refine(isPositiveIntegerString, "Must be a positive integer");
-
-export const tripStopReviewParamsSchema = z.object({ tripStopId: id });
+export const tripStopReviewParamsSchema = z.object({
+    tripStopId: positiveIntegerIdSchema,
+});
 
 export const putReviewSchema = z
     .object({

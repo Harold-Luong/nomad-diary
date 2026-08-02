@@ -738,7 +738,6 @@ api/
 │   │   └── database.js
 │   ├── database/
 │   │   ├── pool.js
-│   │   ├── migrations/
 │   │   └── repositories/
 │   ├── middleware/
 │   │   ├── auth.js

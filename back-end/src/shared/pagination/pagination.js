@@ -1,7 +1,11 @@
 import { ValidationError } from "../errors/app-error.js";
 import { ERRORS, errorArgs } from "../constants/errors.js";
 
-const MAX_PAGE_SIZE = 100;
+export const PAGINATION = Object.freeze({
+    DEFAULT_PAGE: 1,
+    DEFAULT_PAGE_SIZE: 20,
+    MAX_PAGE_SIZE: 100,
+});
 
 const asPositiveInteger = (value, fallback) => {
     if (value === undefined) {
@@ -17,8 +21,11 @@ const asPositiveInteger = (value, fallback) => {
 };
 
 export const parsePagination = (query) => {
-    const page = asPositiveInteger(query.page, 1);
-    const pageSize = Math.min(asPositiveInteger(query.pageSize, 20), MAX_PAGE_SIZE);
+    const page = asPositiveInteger(query.page, PAGINATION.DEFAULT_PAGE);
+    const pageSize = Math.min(
+        asPositiveInteger(query.pageSize, PAGINATION.DEFAULT_PAGE_SIZE),
+        PAGINATION.MAX_PAGE_SIZE,
+    );
 
     return {
         page,

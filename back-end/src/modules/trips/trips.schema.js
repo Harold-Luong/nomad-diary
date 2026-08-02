@@ -5,14 +5,8 @@ import {
     TRIP_STATUS,
     TRIP_STATUS_VALUES,
 } from "../../shared/constants/domain.js";
-
-function isPositiveIntegerString(value) {
-    try {
-        return BigInt(value) > 0n;
-    } catch {
-        return false;
-    }
-}
+import { PAGINATION } from "../../shared/pagination/pagination.js";
+import { positiveIntegerIdSchema } from "../../shared/validation/schemas.js";
 
 function isCalendarDate(value) {
     const parsed = new Date(`${value}T00:00:00.000Z`);
@@ -22,11 +16,6 @@ function isCalendarDate(value) {
         parsed.toISOString().slice(0, 10) === value
     );
 }
-
-const id = z
-    .string()
-    .regex(/^\d+$/, "Must be a positive integer")
-    .refine(isPositiveIntegerString, "Must be a positive integer");
 
 const date = z
     .string()
@@ -67,7 +56,7 @@ function validateDateRange(value, context) {
     }
 }
 
-export const tripIdParamsSchema = z.object({ id });
+export const tripIdParamsSchema = z.object({ id: positiveIntegerIdSchema });
 
 export const createTripSchema = z
     .object({
@@ -111,5 +100,10 @@ export const listTripsQuerySchema = z.object({
     search: z.string().trim().min(1).max(255).optional(),
     sort: z.enum(TRIP_SORT_VALUES).optional(),
     page: z.coerce.number().int().min(1).optional(),
-    pageSize: z.coerce.number().int().min(1).max(100).optional(),
+    pageSize: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(PAGINATION.MAX_PAGE_SIZE)
+        .optional(),
 });

@@ -18,7 +18,11 @@ const mapDatabaseError = (error) => {
         return new AppError(...errorArgs(ERRORS.MISSING_REQUIRED_VALUE), null, 422);
     }
 
-    if (error?.code === "22P02" || error?.code === "22007") {
+    if (
+        error?.code === "22P02" ||
+        error?.code === "22007" ||
+        error?.code === "22008"
+    ) {
         return new AppError(...errorArgs(ERRORS.INVALID_VALUE), null, 422);
     }
 

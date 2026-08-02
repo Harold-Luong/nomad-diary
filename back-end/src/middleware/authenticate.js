@@ -2,7 +2,10 @@ import jwt from "jsonwebtoken";
 
 import { env, hasJwtConfiguration } from "../config/env.js";
 import { query } from "../database/pool.js";
-import { JWT_TOKEN_TYPE } from "../shared/constants/domain.js";
+import {
+    JWT_ALGORITHM,
+    JWT_TOKEN_TYPE,
+} from "../shared/constants/domain.js";
 import { ERRORS, errorArgs } from "../shared/constants/errors.js";
 import { AuthenticationError, ConfigurationError } from "../shared/errors/app-error.js";
 
@@ -27,7 +30,9 @@ export const authenticate = async (req, _res, next) => {
     let payload;
 
     try {
-        payload = jwt.verify(token, env.jwtAccessSecret);
+        payload = jwt.verify(token, env.jwtAccessSecret, {
+            algorithms: [JWT_ALGORITHM],
+        });
     } catch (error) {
         if (error instanceof AuthenticationError) {
             return next(error);

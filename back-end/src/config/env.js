@@ -17,11 +17,13 @@ const splitOrigins = (value) =>
         .map((origin) => origin.trim())
         .filter(Boolean);
 
+const JWT_MIN_SECRET_BYTES = 32;
+const SECRET_PLACEHOLDER_PREFIX = "replace-with-";
+
 export const env = Object.freeze({
     nodeEnv: process.env.NODE_ENV || "development",
     port: parsePort(process.env.PORT, 3000),
     corsOrigins: splitOrigins(process.env.CORS_ORIGIN),
-    uploadMaxSizeBytes: parsePort(process.env.UPLOAD_MAX_SIZE_MB, 10) * 1024 * 1024,
     database: {
         host: process.env.DATABASE_HOST || process.env.DB_HOST || "127.0.0.1",
         port: parsePort(process.env.DATABASE_PORT || process.env.DB_PORT, 5432),
@@ -44,3 +46,46 @@ export const env = Object.freeze({
 
 export const hasJwtConfiguration = () =>
     Boolean(env.jwtAccessSecret && env.jwtRefreshSecret);
+
+export function getRuntimeConfigurationIssues(configuration = env) {
+    const issues = [];
+    const requiresStrongSecrets = configuration.nodeEnv === "production";
+    const secrets = [
+        ["JWT_ACCESS_SECRET", configuration.jwtAccessSecret],
+        ["JWT_REFRESH_SECRET", configuration.jwtRefreshSecret],
+    ];
+
+    for (const [name, value] of secrets) {
+        if (!value) {
+            issues.push(`${name} is required`);
+        } else if (requiresStrongSecrets && value.startsWith(SECRET_PLACEHOLDER_PREFIX)) {
+            issues.push(`${name} must not use the example placeholder`);
+        } else if (
+            requiresStrongSecrets &&
+            Buffer.byteLength(value, "utf8") < JWT_MIN_SECRET_BYTES
+        ) {
+            issues.push(`${name} must contain at least ${JWT_MIN_SECRET_BYTES} UTF-8 bytes`);
+        }
+    }
+
+    if (
+        configuration.jwtAccessSecret &&
+        configuration.jwtAccessSecret === configuration.jwtRefreshSecret
+    ) {
+        issues.push("JWT access and refresh secrets must be different");
+    }
+
+    return issues;
+}
+
+export function assertRuntimeConfiguration(configuration = env) {
+    const issues = getRuntimeConfigurationIssues(configuration);
+
+    if (issues.length === 0) {
+        return;
+    }
+
+    const error = new Error(`Invalid runtime configuration: ${issues.join("; ")}`);
+    error.code = "INVALID_RUNTIME_CONFIGURATION";
+    throw error;
+}

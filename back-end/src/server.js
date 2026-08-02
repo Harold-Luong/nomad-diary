@@ -1,8 +1,13 @@
 import "dotenv/config";
 
-import app from "./app.js";
-import { env } from "./config/env.js";
-import { closePool } from "./database/pool.js";
+import { assertRuntimeConfiguration, env } from "./config/env.js";
+
+assertRuntimeConfiguration();
+
+const [{ default: app }, { closePool }] = await Promise.all([
+    import("./app.js"),
+    import("./database/pool.js"),
+]);
 
 const server = app.listen(env.port, () => {
     console.log(`Nomad Diary API listening on http://localhost:${env.port}`);

@@ -1,17 +1,8 @@
-import { AuthenticationError } from "../../shared/errors/app-error.js";
-import { ERRORS, errorArgs } from "../../shared/constants/errors.js";
 import { asyncHandler } from "../../shared/http/async-handler.js";
+import { getAuthenticatedUserId } from "../../shared/http/auth-context.js";
 import { sendNoContent, sendSuccess } from "../../shared/http/response.js";
 import { parsePagination } from "../../shared/pagination/pagination.js";
 import * as tripsService from "./trips.service.js";
-
-function getAuthenticatedUserId(req) {
-    if (!req.auth?.userId) {
-        throw new AuthenticationError(...errorArgs(ERRORS.UNAUTHENTICATED));
-    }
-
-    return req.auth.userId;
-}
 
 export const listTrips = asyncHandler(async (req, res) => {
     const filters = req.validated?.query ?? req.query;
