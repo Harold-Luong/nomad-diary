@@ -1,6 +1,7 @@
 
 erDiagram
     USERS ||--o{ TRIPS : owns
+    USERS ||--o{ AUTH_SESSIONS : has
 
     PROVINCES ||--o{ PLACES : contains
 
@@ -29,6 +30,17 @@ erDiagram
         boolean is_deleted
         timestamptz created_at
         timestamptz updated_at
+    }
+
+    AUTH_SESSIONS {
+        uuid id PK
+        bigint user_id FK
+        varchar refresh_token_hash
+        timestamptz expires_at
+        timestamptz revoked_at
+        varchar user_agent
+        varchar ip_address
+        timestamptz created_at
     }
 
     PROVINCES {

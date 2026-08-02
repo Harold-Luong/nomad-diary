@@ -1,4 +1,4 @@
--- Active: 1785608887085@@127.0.0.1@5432@nomad_diary
+-- Active: 1785611912431@@127.0.0.1@5432@nomad_diary@nomad_diary
 
 -- =========================================================
 -- NOMAD DIARY - POSTGRESQL DATABASE DESIGN
@@ -38,7 +38,36 @@ WHERE
     is_deleted = false;
 
 -- =========================================================
--- 2. PROVINCES
+-- 2. AUTH SESSIONS
+-- Mỗi bản ghi đại diện cho một phiên đăng nhập/refresh token của user.
+-- Chỉ lưu hash của refresh token; không lưu token gốc.
+-- =========================================================
+
+CREATE TABLE auth_sessions (
+    id uuid PRIMARY KEY,
+    user_id bigint NOT NULL,
+    refresh_token_hash varchar(128) NOT NULL,
+    expires_at timestamptz NOT NULL,
+    revoked_at timestamptz,
+    user_agent varchar(1000),
+    ip_address varchar(64),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT fk_auth_sessions_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT auth_sessions_expiry_check CHECK (expires_at > created_at),
+    CONSTRAINT auth_sessions_revoked_at_check CHECK (
+        revoked_at IS NULL
+        OR revoked_at >= created_at
+    )
+);
+
+CREATE INDEX idx_auth_sessions_user_active ON auth_sessions (user_id, expires_at DESC)
+WHERE
+    revoked_at IS NULL;
+
+CREATE INDEX idx_auth_sessions_expires_at ON auth_sessions (expires_at);
+
+-- =========================================================
+-- 3. PROVINCES
 -- Tỉnh/thành phố dùng để thống kê và tô polygon trên bản đồ.
 --
 -- Polygon có thể lưu trong file GeoJSON phía frontend.
@@ -80,7 +109,7 @@ WHERE
     is_deleted = false;
 
 -- =========================================================
--- 3. PLACES
+-- 4. PLACES
 -- Lưu địa điểm dùng chung.
 --
 -- Ví dụ:
@@ -130,7 +159,7 @@ WHERE
     is_deleted = false;
 
 -- =========================================================
--- 4. TRIPS
+-- 5. TRIPS
 --
 -- status:
 -- 0 = draft
@@ -180,7 +209,7 @@ WHERE
     is_deleted = false;
 
 -- =========================================================
--- 5. TRIP STOPS
+-- 6. TRIP STOPS
 --
 -- Một trip_stop là một lần ghé place trong một trip.
 --
@@ -255,7 +284,7 @@ WHERE
     is_deleted = false;
 
 -- =========================================================
--- 6. PLACE REVIEWS
+-- 7. PLACE REVIEWS
 --
 -- Đánh giá thuộc một lần ghé cụ thể.
 --
@@ -304,7 +333,7 @@ WHERE
     AND is_deleted = false;
 
 -- =========================================================
--- 7. IMAGES
+-- 8. IMAGES
 --
 -- trip_id bắt buộc:
 -- Ảnh luôn thuộc một chuyến đi.
@@ -394,7 +423,7 @@ WHERE
     AND is_deleted = false;
 
 -- =========================================================
--- 8. TAGS
+-- 9. TAGS
 -- =========================================================
 
 CREATE TABLE tags (
@@ -416,7 +445,7 @@ WHERE
     is_deleted = false;
 
 -- =========================================================
--- 9. TRIP TAGS
+-- 10. TRIP TAGS
 -- Một chuyến có nhiều tag, một tag thuộc nhiều chuyến.
 -- =========================================================
 
@@ -432,7 +461,7 @@ CREATE TABLE trip_tags (
 CREATE INDEX idx_trip_tags_tag ON trip_tags (tag_id);
 
 -- =========================================================
--- 10. PLACE TAGS
+-- 11. PLACE TAGS
 -- Một địa điểm có nhiều tag, một tag thuộc nhiều địa điểm.
 -- =========================================================
 
@@ -447,8 +476,8 @@ CREATE TABLE place_tags (
 
 CREATE INDEX idx_place_tags_tag ON place_tags (tag_id);
 
--- =========================================================h
--- 11. AUTO UPDATE updated_at
+-- =========================================================
+-- 12. AUTO UPDATE updated_at
 -- =========================================================
 
 CREATE OR REPLACE FUNCTION set_updated_at()
