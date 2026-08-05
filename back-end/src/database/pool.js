@@ -1,12 +1,18 @@
 import pg from "pg";
-
+import fs from "fs";
 import { env } from "../config/env.js";
 
 const { Pool } = pg;
+const certificatePath = new URL("../certs/global-bundle.pem", import.meta.url);
 
 export const pool = new Pool({
     ...env.database,
-    ssl: env.database.ssl ? { rejectUnauthorized: false } : false,
+    ssl: env.database.ssl
+        ? {
+            ca: fs.readFileSync(certificatePath, "utf8"),
+            rejectUnauthorized: true,
+        }
+        : false,
     application_name: "nomad-diary-api",
     // PostgreSQL applies this before accepting normal queries on the connection.
     options: "-c search_path=nomad_diary,public",
