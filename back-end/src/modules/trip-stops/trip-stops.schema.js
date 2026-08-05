@@ -1,27 +1,59 @@
 import { z } from "zod";
+import { VISIT_ORDER } from "../../shared/constants/domain.js";
+import { positiveIntegerIdSchema } from "../../shared/validation/schemas.js";
 
-function isPositiveIntegerString(value) {
-    try {
-        return BigInt(value) > 0n;
-    } catch {
-        return false;
-    }
-}
+const ISO_TIMESTAMP_WITH_OFFSET_PATTERN =
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(?:Z|[+-](\d{2}):(\d{2}))$/i;
 
 function isTimestampWithOffset(value) {
-    if (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(value)) {
+    const match = ISO_TIMESTAMP_WITH_OFFSET_PATTERN.exec(value);
+
+    if (!match) {
+        return false;
+    }
+
+    const [
+        ,
+        yearText,
+        monthText,
+        dayText,
+        hourText,
+        minuteText,
+        secondText,
+        offsetHourText,
+        offsetMinuteText,
+    ] = match;
+    const year = Number(yearText);
+    const month = Number(monthText);
+    const day = Number(dayText);
+    const hour = Number(hourText);
+    const minute = Number(minuteText);
+    const second = Number(secondText);
+    const offsetHour = Number(offsetHourText ?? 0);
+    const offsetMinute = Number(offsetMinuteText ?? 0);
+    const isLeapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    const daysInMonth = [31, isLeapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+    if (
+        year < 1 ||
+        month < 1 ||
+        month > 12 ||
+        day < 1 ||
+        day > daysInMonth[month - 1] ||
+        hour > 23 ||
+        minute > 59 ||
+        second > 59 ||
+        offsetHour > 14 ||
+        offsetMinute > 59 ||
+        (offsetHour === 14 && offsetMinute !== 0)
+    ) {
         return false;
     }
 
     return !Number.isNaN(Date.parse(value));
 }
 
-const id = z
-    .string()
-    .regex(/^\d+$/, "Must be a positive integer")
-    .refine(isPositiveIntegerString, "Must be a positive integer");
-
-const visitOrder = z.number().int().min(1).max(2_147_483_647);
+const visitOrder = z.number().int().min(VISIT_ORDER.MIN).max(VISIT_ORDER.MAX);
 
 const timestamp = z
     .string()
@@ -32,7 +64,7 @@ const timestamp = z
 const nullableTimestamp = timestamp.nullable().optional();
 
 const stopFields = {
-    placeId: id,
+    placeId: positiveIntegerIdSchema,
     visitOrder,
     arrivedAt: nullableTimestamp,
     departedAt: nullableTimestamp,
@@ -54,9 +86,9 @@ function validateStopTimes(value, context) {
     }
 }
 
-export const tripIdParamsSchema = z.object({ tripId: id });
+export const tripIdParamsSchema = z.object({ tripId: positiveIntegerIdSchema });
 
-export const tripStopIdParamsSchema = z.object({ id });
+export const tripStopIdParamsSchema = z.object({ id: positiveIntegerIdSchema });
 
 export const createTripStopSchema = z
     .object({
@@ -91,7 +123,7 @@ export const reorderTripStopsSchema = z
             .array(
                 z
                     .object({
-                        id,
+                        id: positiveIntegerIdSchema,
                         visitOrder,
                     })
                     .strict(),

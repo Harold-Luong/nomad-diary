@@ -57,7 +57,12 @@ export async function findActiveForOwnedStop(
     return result.rows[0] ?? null;
 }
 
-export async function upsert(tripStopId, data, executor = query) {
+export async function upsertForOwnedStop(
+    tripStopId,
+    userId,
+    data,
+    executor = query,
+) {
     const result = await executeQuery(
         executor,
         `
@@ -69,7 +74,20 @@ export async function upsert(tripStopId, data, executor = query) {
                 note,
                 warning_note
             )
-            VALUES ($1, $2, $3, $4, $5, $6)
+            SELECT
+                ts.id,
+                $3,
+                $4,
+                $5,
+                $6,
+                $7
+            FROM trip_stops ts
+            JOIN trips t
+              ON t.id = ts.trip_id
+             AND t.is_deleted = false
+            WHERE ts.id = $1
+              AND t.user_id = $2
+              AND ts.is_deleted = false
             ON CONFLICT (trip_stop_id) WHERE is_deleted = false
             DO UPDATE
             SET rating = EXCLUDED.rating,
@@ -82,6 +100,7 @@ export async function upsert(tripStopId, data, executor = query) {
         `,
         [
             tripStopId,
+            userId,
             data.rating,
             data.revisitStatus,
             data.isFavorite,
@@ -90,7 +109,7 @@ export async function upsert(tripStopId, data, executor = query) {
         ],
     );
 
-    return result.rows[0];
+    return result.rows[0] ?? null;
 }
 
 export async function softDeleteForOwnedStop(

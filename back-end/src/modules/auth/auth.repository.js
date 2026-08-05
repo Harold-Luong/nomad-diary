@@ -52,41 +52,10 @@ export async function findActiveUserByIdentifier(identifier, executor = query) {
             FROM users
             WHERE is_deleted = false
               AND (lower(email) = lower($1) OR lower(username) = lower($1))
+            ORDER BY CASE WHEN lower(email) = lower($1) THEN 0 ELSE 1 END
             LIMIT 1
         `,
         [identifier],
-    );
-
-    return result.rows[0] ?? null;
-}
-
-export async function findActiveUserByEmail(email, executor = query) {
-    const result = await executeQuery(
-        executor,
-        `
-            SELECT id
-            FROM users
-            WHERE lower(email) = lower($1)
-              AND is_deleted = false
-            LIMIT 1
-        `,
-        [email],
-    );
-
-    return result.rows[0] ?? null;
-}
-
-export async function findActiveUserByUsername(username, executor = query) {
-    const result = await executeQuery(
-        executor,
-        `
-            SELECT id
-            FROM users
-            WHERE lower(username) = lower($1)
-              AND is_deleted = false
-            LIMIT 1
-        `,
-        [username],
     );
 
     return result.rows[0] ?? null;
@@ -215,23 +184,6 @@ export async function createAuthSession(
     );
 
     return result.rows[0];
-}
-
-export async function findActiveAuthSessionById(sessionId, executor = query) {
-    const result = await executeQuery(
-        executor,
-        `
-            SELECT id, user_id, refresh_token_hash, expires_at, revoked_at
-            FROM auth_sessions
-            WHERE id = $1
-              AND revoked_at IS NULL
-              AND expires_at > now()
-            LIMIT 1
-        `,
-        [sessionId],
-    );
-
-    return result.rows[0] ?? null;
 }
 
 export async function findActiveAuthSessionByIdForUpdate(sessionId, executor = query) {

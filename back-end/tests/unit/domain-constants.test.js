@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
     AUTH_SCHEME,
+    JWT_ALGORITHM,
     JWT_TOKEN_TYPE,
     REVISIT_STATUS,
     REVISIT_STATUS_VALUES,
@@ -10,6 +11,7 @@ import {
     TRIP_SORT_VALUES,
     TRIP_STATUS,
     TRIP_STATUS_VALUES,
+    VISIT_ORDER,
 } from "../../src/shared/constants/domain.js";
 import { ERRORS, errorArgs } from "../../src/shared/constants/errors.js";
 
@@ -24,6 +26,7 @@ test("domain enums use the values enforced by PostgreSQL", () => {
     assert.deepEqual(TRIP_STATUS_VALUES, [0, 1, 2, 3, 4]);
     assert.deepEqual(REVISIT_STATUS_VALUES, [0, 1, 2, 3]);
     assert.equal(REVISIT_STATUS.NOT_RECOMMENDED, 3);
+    assert.deepEqual(VISIT_ORDER, { MIN: 1, MAX: 2_147_483_647 });
 });
 
 test("query and authentication enums expose stable API values", () => {
@@ -32,6 +35,7 @@ test("query and authentication enums expose stable API values", () => {
     assert.equal(JWT_TOKEN_TYPE.ACCESS, "access");
     assert.equal(JWT_TOKEN_TYPE.REFRESH, "refresh");
     assert.equal(AUTH_SCHEME.BEARER, "Bearer");
+    assert.equal(JWT_ALGORITHM, "HS256");
 });
 
 test("enum objects and their value lists cannot be mutated", () => {

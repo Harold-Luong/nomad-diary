@@ -19,6 +19,11 @@ export const REVISIT_STATUS_VALUES = Object.freeze(
     Object.values(REVISIT_STATUS),
 );
 
+export const VISIT_ORDER = Object.freeze({
+    MIN: 1,
+    MAX: 2_147_483_647,
+});
+
 export const TRIP_SORT = Object.freeze({
     CREATED_AT_DESC: "createdAtDesc",
     CREATED_AT_ASC: "createdAtAsc",
@@ -34,6 +39,8 @@ export const JWT_TOKEN_TYPE = Object.freeze({
     ACCESS: "access",
     REFRESH: "refresh",
 });
+
+export const JWT_ALGORITHM = "HS256";
 
 export const AUTH_SCHEME = Object.freeze({
     BEARER: "Bearer",

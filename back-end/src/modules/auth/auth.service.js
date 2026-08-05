@@ -3,9 +3,11 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import jwt from "jsonwebtoken";
 
 import { env, hasJwtConfiguration } from "../../config/env.js";
+import { isUniqueViolation } from "../../database/postgres-errors.js";
 import { withTransaction } from "../../database/transaction.js";
 import {
     AUTH_SCHEME,
+    JWT_ALGORITHM,
     JWT_TOKEN_TYPE,
 } from "../../shared/constants/domain.js";
 import { ERRORS, errorArgs } from "../../shared/constants/errors.js";
@@ -18,6 +20,8 @@ import {
 import * as authRepository from "./auth.repository.js";
 
 const PASSWORD_SALT_ROUNDS = 12;
+const DUMMY_PASSWORD_HASH =
+    "$2b$12$0VyxDfjkSeE9dPUZg187ruF2ewzbUi8nst8ro6CjSiQ/HWxjxT/RS";
 
 function ensureJwtConfiguration() {
     if (!hasJwtConfiguration()) {
@@ -54,6 +58,12 @@ function invalidCredentialsError() {
     );
 }
 
+function invalidRefreshTokenError() {
+    return new AuthenticationError(
+        ...errorArgs(ERRORS.INVALID_REFRESH_TOKEN),
+    );
+}
+
 function unauthenticatedError() {
     return new AuthenticationError(...errorArgs(ERRORS.UNAUTHENTICATED));
 }
@@ -77,7 +87,7 @@ function signAccessToken(userId, sessionId) {
             type: JWT_TOKEN_TYPE.ACCESS,
         },
         env.jwtAccessSecret,
-        { expiresIn: env.jwtAccessExpiresIn },
+        { algorithm: JWT_ALGORITHM, expiresIn: env.jwtAccessExpiresIn },
     );
 }
 
@@ -89,7 +99,7 @@ function signRefreshToken(userId, sessionId) {
             type: JWT_TOKEN_TYPE.REFRESH,
         },
         env.jwtRefreshSecret,
-        { expiresIn: env.jwtRefreshExpiresIn },
+        { algorithm: JWT_ALGORITHM, expiresIn: env.jwtRefreshExpiresIn },
     );
 }
 
@@ -105,7 +115,9 @@ function getTokenExpiry(token) {
 
 function parseRefreshToken(refreshToken) {
     try {
-        const payload = jwt.verify(refreshToken, env.jwtRefreshSecret);
+        const payload = jwt.verify(refreshToken, env.jwtRefreshSecret, {
+            algorithms: [JWT_ALGORITHM],
+        });
 
         if (
             !payload ||
@@ -114,7 +126,7 @@ function parseRefreshToken(refreshToken) {
             typeof payload.sub !== "string" ||
             typeof payload.sid !== "string"
         ) {
-            throw invalidCredentialsError();
+            throw invalidRefreshTokenError();
         }
 
         return {
@@ -131,9 +143,7 @@ function parseRefreshToken(refreshToken) {
             error?.name === "TokenExpiredError" ||
             error?.name === "NotBeforeError"
         ) {
-            throw new AuthenticationError(
-                ...errorArgs(ERRORS.INVALID_REFRESH_TOKEN),
-            );
+            throw invalidRefreshTokenError();
         }
 
         throw error;
@@ -180,10 +190,6 @@ async function issueSessionTokens(user, requestInfo, executor) {
     };
 }
 
-function isUniqueViolation(error) {
-    return error?.code === "23505";
-}
-
 function duplicateUserError(error) {
     const constraint = error?.constraint ?? "";
 
@@ -202,8 +208,8 @@ export async function register(input, requestInfo) {
     try {
         return await withTransaction(async (client) => {
             const [existingUsername, existingEmail] = await Promise.all([
-                authRepository.findActiveUserByUsername(input.username, client),
-                authRepository.findActiveUserByEmail(input.email, client),
+                authRepository.findActiveUserByIdentifier(input.username, client),
+                authRepository.findActiveUserByIdentifier(input.email, client),
             ]);
 
             if (existingUsername) {
@@ -242,7 +248,9 @@ export async function login(input, requestInfo) {
 
     const user = await authRepository.findActiveUserByIdentifier(input.identifier);
 
-    if (!user || !(await passwordMatches(input.password, user.password_hash))) {
+    const passwordHash = user?.password_hash ?? DUMMY_PASSWORD_HASH;
+
+    if (!(await passwordMatches(input.password, passwordHash)) || !user) {
         throw invalidCredentialsError();
     }
 
@@ -265,17 +273,13 @@ export async function refreshSession(refreshToken, requestInfo) {
             String(session.user_id) !== userId ||
             !tokenHashesMatch(session.refresh_token_hash, refreshToken)
         ) {
-            throw new AuthenticationError(
-                ...errorArgs(ERRORS.INVALID_REFRESH_TOKEN),
-            );
+            throw invalidRefreshTokenError();
         }
 
         const user = await authRepository.findActiveUserById(userId, client);
 
         if (!user) {
-            throw new AuthenticationError(
-                ...errorArgs(ERRORS.INVALID_REFRESH_TOKEN),
-            );
+            throw invalidRefreshTokenError();
         }
 
         await authRepository.revokeAuthSession(sessionId, userId, client);

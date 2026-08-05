@@ -3,7 +3,9 @@ import {
     NotFoundError,
     ValidationError,
 } from "../../shared/errors/app-error.js";
+import { isUniqueViolation } from "../../database/postgres-errors.js";
 import { ERRORS, errorArgs } from "../../shared/constants/errors.js";
+import { paginationMeta } from "../../shared/pagination/pagination.js";
 import * as tripsRepository from "./trips.repository.js";
 
 function toTripDto(trip) {
@@ -31,10 +33,6 @@ function assertDateRange(startDate, endDate) {
     }
 }
 
-function isUniqueViolation(error) {
-    return error?.code === "23505";
-}
-
 async function requireOwnedTrip(id, userId) {
     const trip = await tripsRepository.findByIdForUser(id, userId);
 
@@ -55,12 +53,7 @@ export async function listTrips(userId, filters, pagination) {
 
     return {
         data: rows.map(toTripDto),
-        meta: {
-            page: pagination.page,
-            pageSize: pagination.pageSize,
-            total,
-            totalPages: Math.ceil(total / pagination.pageSize),
-        },
+        meta: paginationMeta({ ...pagination, total }),
     };
 }
 

@@ -82,7 +82,6 @@ JWT_ACCESS_EXPIRES_IN=15m
 JWT_REFRESH_EXPIRES_IN=30d
 
 CORS_ORIGIN=http://localhost:5173,http://localhost:3000
-UPLOAD_MAX_SIZE_MB=10
 ```
 
 Tạo một secret ngẫu nhiên bằng Node.js:
@@ -92,7 +91,11 @@ node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
 ```
 
 Chạy lệnh hai lần và sử dụng hai giá trị khác nhau cho
-`JWT_ACCESS_SECRET` và `JWT_REFRESH_SECRET`.
+`JWT_ACCESS_SECRET` và `JWT_REFRESH_SECRET`; hai giá trị không được trùng nhau.
+Khi `NODE_ENV=production`, mỗi secret phải có ít nhất 32 byte và không được giữ
+giá trị `replace-with-...` trong file mẫu. Server kiểm tra cấu hình trước khi bắt
+đầu lắng nghe và dừng ngay nếu cấu hình không hợp lệ. Development vẫn nên thay
+placeholder để token local không dùng secret công khai.
 
 ### 3. Chạy ứng dụng
 
@@ -147,7 +150,7 @@ Quy trình thử API có authentication:
 2. Sao chép `accessToken` trong response.
 3. Nhấn nút **Authorize** trên Swagger.
 4. Nhập access token. Swagger sẽ tự thêm header Bearer.
-5. Thử các endpoint trips, trip stops và reviews.
+5. Thử các endpoint trips, provinces, trip stops và reviews.
 
 Nếu Swagger vẫn hiển thị schema cũ, khởi động lại backend và refresh trình
 duyệt bằng `Ctrl + F5`.
@@ -256,6 +259,10 @@ Các HTTP status thường gặp:
   "displayName": "Nomad"
 }
 ```
+
+Email và username cùng được dùng làm `identifier` khi đăng nhập. Vì vậy API
+không cho đăng ký username trùng email đang hoạt động hoặc email trùng username
+đang hoạt động; so sánh không phân biệt chữ hoa/thường.
 
 Response đăng ký/đăng nhập:
 
@@ -427,6 +434,85 @@ Response chuyến đi:
 }
 ```
 
+### Provinces API
+
+Các endpoint tỉnh yêu cầu access token vì thống kê được tính riêng cho user hiện tại.
+Một tỉnh được xem là đã ghé khi user có ít nhất một `trip_stop` đang hoạt động, thuộc
+một trip đang hoạt động và một place đang hoạt động trong tỉnh đó.
+
+| Method | Endpoint | Mô tả |
+| --- | --- | --- |
+| `GET` | `/api/provinces` | Danh sách tỉnh kèm thống kê tracking và phân trang |
+| `GET` | `/api/provinces/visited` | Danh sách tỉnh đã ghé để tô bản đồ |
+| `GET` | `/api/provinces/:id` | Chi tiết tỉnh kèm thống kê của user |
+| `GET` | `/api/provinces/:id/places` | Danh sách địa điểm trong tỉnh kèm lịch sử ghé |
+
+Query của `GET /api/provinces`:
+
+| Query | Kiểu | Mặc định | Mô tả |
+| --- | --- | --- | --- |
+| `page` | integer | `1` | Trang hiện tại |
+| `pageSize` | integer | `20` | Số bản ghi, tối đa `100` |
+| `countryCode` | string | — | Mã quốc gia hai ký tự, ví dụ `VN` |
+| `search` | string | — | Tìm theo tên hoặc mã tỉnh |
+| `visited` | boolean | — | `true`: đã ghé, `false`: chưa ghé |
+
+`GET /api/provinces/visited` không phân trang để frontend có thể lấy toàn bộ mã tỉnh
+đã ghé trong một request và nối `province.code` với `feature.properties.code` của GeoJSON.
+Có thể lọc theo `countryCode`.
+
+Ví dụ lấy các địa điểm đã ghé tại một tỉnh:
+
+```text
+GET /api/provinces/1/places?visited=true&page=1&pageSize=20
+```
+
+Query của endpoint địa điểm gồm `page`, `pageSize`, `search` và `visited=true|false`.
+Nếu không truyền `visited`, API trả cả địa điểm đã ghé và chưa ghé trong tỉnh.
+
+Response tracking tỉnh:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "1",
+    "countryCode": "VN",
+    "code": "68",
+    "name": "Lâm Đồng",
+    "slug": "lam-dong",
+    "centerLatitude": 11.5753,
+    "centerLongitude": 108.1429,
+    "visited": true,
+    "tripCount": 3,
+    "placeCount": 8,
+    "visitCount": 12,
+    "firstVisitedAt": "2025-01-10T01:00:00.000Z",
+    "lastVisitedAt": "2026-03-11T00:00:00.000Z"
+  }
+}
+```
+
+`placeCount` là số địa điểm duy nhất (`COUNT(DISTINCT place_id)`), còn `visitCount`
+là tổng số lần ghé (`COUNT(trip_stops.id)`). Ghé lại cùng một place làm tăng
+`visitCount` nhưng không làm tăng `placeCount`. Các thời điểm có thể là `null` nếu
+trip stop không có `arrivedAt`.
+
+Response địa điểm trong tỉnh bổ sung các trường tracking:
+
+```json
+{
+  "id": "10",
+  "provinceId": "1",
+  "name": "Hồ Xuân Hương",
+  "visited": true,
+  "tripCount": 2,
+  "visitCount": 3,
+  "firstVisitedAt": "2025-01-10T01:00:00.000Z",
+  "lastVisitedAt": "2026-03-11T00:00:00.000Z"
+}
+```
+
 ### Trip Stops API
 
 `placeId` tham chiếu một địa điểm đã tồn tại trong bảng `places`. Một trip có
@@ -569,13 +655,14 @@ Backend hiện đã mount và kiểm thử các module:
 
 - Authentication
 - Trips
+- Provinces và province tracking
 - Trip stops và reorder
 - Place reviews
 
-Database đã có các bảng `provinces`, `places`, `images`, `tags`, `trip_tags` và
-`place_tags`, nhưng API CRUD riêng cho các bảng này chưa được triển khai. Dữ
-liệu `places` hiện cần được tạo bằng schema/seed hoặc quản lý trực tiếp trong
-database trước khi thêm trip stop.
+Database đã có các bảng `places`, `images`, `tags`, `trip_tags` và `place_tags`, nhưng
+API CRUD riêng cho các bảng này chưa được triển khai. Module provinces hiện chỉ đọc
+catalog tỉnh/place và thống kê lượt ghé; dữ liệu `places` vẫn cần được tạo bằng
+schema/seed hoặc quản lý trực tiếp trong database trước khi thêm trip stop.
 
 ## Cấu trúc mã nguồn
 
@@ -588,20 +675,24 @@ back-end/
 │   │   └── env.js
 │   ├── database/
 │   │   ├── pool.js
+│   │   ├── postgres-errors.js
 │   │   └── transaction.js
 │   ├── docs/
 │   │   └── openapi.js
 │   ├── middleware/
 │   ├── modules/
 │   │   ├── auth/
+│   │   ├── provinces/
 │   │   ├── trips/
 │   │   ├── trip-stops/
 │   │   └── reviews/
 │   ├── routes/
 │   └── shared/
-│       └── constants/
-│           ├── domain.js
-│           └── errors.js
+│       ├── constants/
+│       ├── errors/
+│       ├── http/
+│       ├── pagination/
+│       └── validation/
 ├── tests/
 ├── .env.example
 ├── package.json
@@ -621,10 +712,11 @@ routes → controller → service → repository → PostgreSQL
 - `schema`: kiểm tra và chuẩn hóa dữ liệu bằng Zod
 
 Các giá trị dùng chung như trạng thái trip, trạng thái review, kiểu sort và
-loại JWT được khai báo trong `src/shared/constants/domain.js`. Mã lỗi và thông
-điệp chuẩn được khai báo trong `src/shared/constants/errors.js`. Khi thêm nghiệp
-vụ mới, sử dụng các catalog này thay vì viết trực tiếp số hoặc chuỗi trong nhiều
-file.
+loại JWT được khai báo trong `src/shared/constants/domain.js`. Validator ID và
+auth context dùng chung nằm trong `src/shared/validation` và `src/shared/http`.
+Mã lỗi và thông điệp chuẩn được khai báo trong
+`src/shared/constants/errors.js`. Khi thêm nghiệp vụ mới, sử dụng các helper và
+catalog này thay vì viết lại logic trong từng module.
 
 ## Chạy test
 
@@ -632,8 +724,12 @@ file.
 npm.cmd test
 ```
 
-Test hiện kiểm tra health, Swagger, JSON error, CORS, login schema, database
-executor và validation tương thích Express 5.
+Test hiện kiểm tra health, Swagger, JSON error, CORS, login schema, cấu hình JWT,
+strict timestamp, ownership SQL của review, province tracking theo user, database
+executor, shared helpers và validation tương thích Express 5. Các luồng CRUD sử dụng
+PostgreSQL thật vẫn cần
+một test database riêng và sẽ được bổ sung cùng integration test ở bước tiếp
+theo.
 
 Kiểm tra dependency production:
 

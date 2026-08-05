@@ -1,4 +1,6 @@
 import { withTransaction } from "../../database/transaction.js";
+import { isUniqueViolation } from "../../database/postgres-errors.js";
+import { VISIT_ORDER } from "../../shared/constants/domain.js";
 import {
     ConflictError,
     NotFoundError,
@@ -6,8 +8,6 @@ import {
 } from "../../shared/errors/app-error.js";
 import { ERRORS, errorArgs } from "../../shared/constants/errors.js";
 import * as tripStopsRepository from "./trip-stops.repository.js";
-
-const MAX_POSTGRES_INTEGER = 2_147_483_647;
 
 function toTripStopDto(stop) {
     return {
@@ -53,10 +53,6 @@ function assertStopTimes(arrivedAt, departedAt) {
             ...errorArgs(ERRORS.INVALID_STOP_TIME_RANGE),
         );
     }
-}
-
-function isUniqueViolation(error) {
-    return error?.code === "23505";
 }
 
 async function requireOwnedTrip(tripId, userId, executor) {
@@ -165,7 +161,7 @@ export async function createTripStop(tripId, userId, data) {
                 data.visitOrder ??
                 (await tripStopsRepository.getNextVisitOrder(tripId, client));
 
-            if (visitOrder > MAX_POSTGRES_INTEGER) {
+            if (visitOrder > VISIT_ORDER.MAX) {
                 throw new ValidationError(
                     ...errorArgs(ERRORS.STOP_ORDER_OUT_OF_RANGE),
                 );
@@ -270,7 +266,7 @@ export async function reorderTripStops(tripId, userId, requestedStops) {
             activeStops.length +
             1;
 
-        if (largestExistingOrder + offset > MAX_POSTGRES_INTEGER) {
+        if (largestExistingOrder + offset > VISIT_ORDER.MAX) {
             throw new ValidationError(
                 ...errorArgs(ERRORS.STOP_ORDER_OUT_OF_RANGE),
             );

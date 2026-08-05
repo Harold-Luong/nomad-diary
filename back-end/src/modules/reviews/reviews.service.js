@@ -36,8 +36,16 @@ export async function getReview(tripStopId, userId) {
 }
 
 export async function putReview(tripStopId, userId, data) {
-    await requireOwnedStop(tripStopId, userId);
-    const review = await reviewsRepository.upsert(tripStopId, data);
+    const review = await reviewsRepository.upsertForOwnedStop(
+        tripStopId,
+        userId,
+        data,
+    );
+
+    if (!review) {
+        throw new NotFoundError(...errorArgs(ERRORS.TRIP_STOP_NOT_FOUND));
+    }
+
     return toReviewDto(review);
 }
 
