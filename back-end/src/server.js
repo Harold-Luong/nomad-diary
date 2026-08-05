@@ -1,6 +1,8 @@
-import "dotenv/config";
+import { loadEnvironment } from "./config/load-environment.js";
 
-import { assertRuntimeConfiguration, env } from "./config/env.js";
+loadEnvironment();
+
+const { assertRuntimeConfiguration, env } = await import("./config/env.js");
 
 assertRuntimeConfiguration();
 

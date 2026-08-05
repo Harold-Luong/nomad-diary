@@ -28,11 +28,11 @@ Các lệnh dưới đây được chạy từ thư mục `back-end`:
 ```powershell
 cd "D:\Nomad Diary\nomad-diary\back-end"
 npm.cmd install
-Copy-Item .env.example .env
 ```
 
-Mở `.env` và thay thông tin PostgreSQL cùng hai JWT secret bằng giá trị thật.
-`.env.example` chỉ là file mẫu; ứng dụng chỉ tự động đọc file `.env`.
+Khi chạy local, ứng dụng tự đọc `.env.example`. Khi chạy production với
+`NODE_ENV=production`, ứng dụng đọc `.env`; tạo file này và thay thông tin
+PostgreSQL cùng hai JWT secret bằng giá trị thật.
 
 ### 1. Tạo database
 
@@ -60,7 +60,7 @@ psql -v ON_ERROR_STOP=1 -U postgres -d nomad_diary -f ..\database\nomad-diary-se
 > Seed sẽ `TRUNCATE` dữ liệu hiện có. Password hash của seed chỉ là dữ liệu
 > minh họa và không dùng để đăng nhập. Hãy đăng ký user mới qua API.
 
-### 2. Cấu hình `.env`
+### 2. Cấu hình môi trường
 
 ```env
 NODE_ENV=development
@@ -755,15 +755,19 @@ Sau đó chạy server qua npm:
 npm.cmd run dev
 ```
 
-### `.env.example` có nhưng cấu hình không được nhận
+### Cấu hình local hoặc production không được nhận
 
-`.env.example` chỉ là mẫu. Tạo file `.env`:
+Khi chạy local, server tự đọc `.env.example`. Khi chạy production, tạo file `.env`
+và đặt `NODE_ENV=production` trước khi khởi động server:
 
 ```powershell
 Copy-Item .env.example .env
+$env:NODE_ENV = "production"
+npm.cmd start
 ```
 
-Sau khi sửa `.env`, phải khởi động lại server.
+`NODE_ENV` phải được đặt trước khi Node.js khởi động để server chọn đúng file.
+Sau khi sửa file cấu hình, phải khởi động lại server.
 
 ### `CORS_ORIGIN_NOT_ALLOWED`
 
