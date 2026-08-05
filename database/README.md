@@ -6,8 +6,6 @@ Thiết kế cơ sở dữ liệu PostgreSQL cho **Nomad Diary** — một nhậ
 
 ```text
 database/
-├── migrations/
-│   └── 001_auth_sessions.sql # Nâng cấp database được tạo từ schema cũ
 ├── nomad-diary.sql           # Schema, ràng buộc, chỉ mục và trigger
 ├── nomad-diary-seed.sql      # Dữ liệu mẫu cho môi trường development/test
 └── nomad-diary-er.mmd        # ERD Mermaid đầy đủ
@@ -27,12 +25,6 @@ psql -v ON_ERROR_STOP=1 -U <user> -d <database> -f database/nomad-diary.sql
 Script schema tự mở transaction, đặt `search_path` thành `nomad_diary, public` và chỉ reset schema riêng `nomad_diary`. Có thể chạy lại script để dựng lại toàn bộ cấu trúc của ứng dụng mà không xóa các đối tượng khác trong schema `public`.
 
 > **Cảnh báo:** mỗi lần chạy file schema, lệnh `DROP SCHEMA nomad_diary CASCADE` sẽ xóa toàn bộ bảng và dữ liệu Nomad Diary hiện có trước khi dựng lại cấu trúc.
-
-`auth_sessions` đã nằm trong `nomad-diary.sql`. Chỉ database được tạo bằng phiên bản schema cũ mới cần chạy migration nâng cấp mà không reset dữ liệu:
-
-```bash
-psql -v ON_ERROR_STOP=1 -U <user> -d <database> -f database/migrations/001_auth_sessions.sql
-```
 
 Để nạp dữ liệu mẫu sau khi đã tạo schema:
 
