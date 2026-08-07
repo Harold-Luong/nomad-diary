@@ -18,6 +18,13 @@ export const pool = new Pool({
     options: "-c search_path=nomad_diary,public",
 });
 
+console.log("Runtime DB config:", {
+    host: env.database.host,
+    port: env.database.port,
+    database: env.database.database,
+    ssl: env.database.ssl,
+});
+
 pool.on("error", (error) => {
     console.error({
         event: "database_pool_error",
