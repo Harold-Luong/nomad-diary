@@ -15,6 +15,7 @@ import { AuthorizationError } from "./shared/errors/app-error.js";
 import { sendSuccess } from "./shared/http/response.js";
 
 const app = express();
+app.set("trust proxy", 1);
 
 app.disable("x-powered-by");
 app.use(requestId);
@@ -25,6 +26,7 @@ app.use(
                 scriptSrc: ["'self'", "'unsafe-inline'"],
                 styleSrc: ["'self'", "'unsafe-inline'"],
                 imgSrc: ["'self'", "data:"],
+                upgradeInsecureRequests: null, // Disable automatic HTTP → HTTPS upgrade
             },
         },
     }),
