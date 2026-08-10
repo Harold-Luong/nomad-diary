@@ -46,6 +46,7 @@ const definition = {
         { name: "Provinces" },
         { name: "Trip stops" },
         { name: "Reviews" },
+        { name: "Uploads" },
     ],
     components: {
         securitySchemes: {
@@ -166,6 +167,27 @@ const definition = {
                     startDate: { type: "string", format: "date", nullable: true },
                     endDate: { type: "string", format: "date", nullable: true },
                     isPublic: { type: "boolean" },
+                },
+            },
+            PresignedUploadInput: {
+                type: "object",
+                required: ["fileName", "contentType", "fileSize"],
+                properties: {
+                    fileName: { type: "string", example: "da-lat.jpg" },
+                    contentType: {
+                        type: "string",
+                        enum: ["image/jpeg", "image/png", "image/webp"],
+                    },
+                    fileSize: {
+                        type: "integer",
+                        minimum: 1,
+                        description: "Image size in bytes",
+                    },
+                    purpose: {
+                        type: "string",
+                        enum: ["avatar", "trip-cover", "image"],
+                        default: "image",
+                    },
                 },
             },
             ProvinceTracking: {
@@ -427,6 +449,27 @@ const definition = {
                     content: { "application/json": { schema: { $ref: "#/components/schemas/TripInput" } } },
                 },
                 responses: { 201: successResponse("Trip created"), 422: errorResponse("Invalid trip") },
+            },
+        },
+        "/uploads/presigned-url": {
+            post: {
+                tags: ["Uploads"],
+                security: bearer,
+                summary: "Create a presigned S3 image upload URL valid for 5 minutes",
+                requestBody: {
+                    required: true,
+                    content: {
+                        "application/json": {
+                            schema: { $ref: "#/components/schemas/PresignedUploadInput" },
+                        },
+                    },
+                },
+                responses: {
+                    201: successResponse("Presigned upload URL created"),
+                    401: errorResponse("Unauthenticated"),
+                    422: errorResponse("Invalid image metadata"),
+                    500: errorResponse("S3 upload is not configured"),
+                },
             },
         },
         "/trips/{id}": {

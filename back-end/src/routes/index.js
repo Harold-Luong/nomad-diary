@@ -7,6 +7,7 @@ import tripStopsRouter, {
     tripStopsByTripRouter,
 } from "../modules/trip-stops/trip-stops.routes.js";
 import tripsRouter from "../modules/trips/trips.routes.js";
+import uploadsRouter from "../modules/uploads/uploads.routes.js";
 import { query } from "../database/pool.js";
 import { asyncHandler } from "../shared/http/async-handler.js";
 import { sendSuccess } from "../shared/http/response.js";
@@ -36,5 +37,6 @@ router.use("/trips", tripStopsByTripRouter);
 router.use("/trips", tripsRouter);
 router.use("/trip-stops", reviewsRouter);
 router.use("/trip-stops", tripStopsRouter);
+router.use("/uploads", uploadsRouter);
 
 export default router;
