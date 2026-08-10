@@ -295,14 +295,14 @@ const definition = {
         },
     },
     paths: {
-        "/api/health": {
+        "/health": {
             get: {
                 tags: ["Health"],
                 summary: "Check API health",
                 responses: { 200: successResponse() },
             },
         },
-        "/api/health/ready": {
+        "/health/ready": {
             get: {
                 tags: ["Health"],
                 summary: "Check API and PostgreSQL readiness",
@@ -312,7 +312,7 @@ const definition = {
                 },
             },
         },
-        "/api/auth/register": {
+        "/auth/register": {
             post: {
                 tags: ["Authentication"],
                 summary: "Create an account",
@@ -323,7 +323,7 @@ const definition = {
                 responses: { 201: successResponse("Account created"), 409: errorResponse("Username or email exists") },
             },
         },
-        "/api/auth/login": {
+        "/auth/login": {
             post: {
                 tags: ["Authentication"],
                 summary: "Authenticate and receive tokens",
@@ -334,7 +334,7 @@ const definition = {
                 responses: { 200: successResponse(), 401: errorResponse("Invalid credentials") },
             },
         },
-        "/api/auth/refresh-token": {
+        "/auth/refresh-token": {
             post: {
                 tags: ["Authentication"],
                 summary: "Rotate a refresh token",
@@ -345,7 +345,7 @@ const definition = {
                 responses: { 200: successResponse(), 401: errorResponse("Invalid refresh token") },
             },
         },
-        "/api/auth/logout": {
+        "/auth/logout": {
             post: {
                 tags: ["Authentication"],
                 security: bearer,
@@ -353,7 +353,7 @@ const definition = {
                 responses: { 204: { description: "Logged out" }, 401: errorResponse("Unauthenticated") },
             },
         },
-        "/api/auth/me": {
+        "/auth/me": {
             get: {
                 tags: ["Authentication"],
                 security: bearer,
@@ -371,7 +371,7 @@ const definition = {
                 responses: { 200: successResponse(), 401: errorResponse("Unauthenticated") },
             },
         },
-        "/api/auth/change-password": {
+        "/auth/change-password": {
             patch: {
                 tags: ["Authentication"],
                 security: bearer,
@@ -383,7 +383,7 @@ const definition = {
                 responses: { 200: successResponse(), 401: errorResponse("Unauthenticated") },
             },
         },
-        "/api/auth/account": {
+        "/auth/account": {
             delete: {
                 tags: ["Authentication"],
                 security: bearer,
@@ -403,7 +403,7 @@ const definition = {
                 responses: { 204: { description: "Account deleted" }, 401: errorResponse("Unauthenticated") },
             },
         },
-        "/api/trips": {
+        "/trips": {
             get: {
                 tags: ["Trips"],
                 security: bearer,
@@ -429,7 +429,7 @@ const definition = {
                 responses: { 201: successResponse("Trip created"), 422: errorResponse("Invalid trip") },
             },
         },
-        "/api/trips/{id}": {
+        "/trips/{id}": {
             parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
             get: { tags: ["Trips"], security: bearer, summary: "Get a trip", responses: { 200: successResponse(), 404: errorResponse("Not found") } },
             patch: {
@@ -441,7 +441,7 @@ const definition = {
             },
             delete: { tags: ["Trips"], security: bearer, summary: "Soft-delete a trip", responses: { 204: { description: "Deleted" }, 404: errorResponse("Not found") } },
         },
-        "/api/provinces": {
+        "/provinces": {
             get: {
                 tags: ["Provinces"],
                 security: bearer,
@@ -456,7 +456,7 @@ const definition = {
                 responses: { 200: successResponse(), 401: errorResponse("Unauthenticated") },
             },
         },
-        "/api/provinces/visited": {
+        "/provinces/visited": {
             get: {
                 tags: ["Provinces"],
                 security: bearer,
@@ -468,7 +468,7 @@ const definition = {
                 responses: { 200: successResponse(), 401: errorResponse("Unauthenticated") },
             },
         },
-        "/api/provinces/{id}": {
+        "/provinces/{id}": {
             parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
             get: {
                 tags: ["Provinces"],
@@ -477,7 +477,7 @@ const definition = {
                 responses: { 200: successResponse(), 404: errorResponse("Province not found") },
             },
         },
-        "/api/provinces/{id}/places": {
+        "/provinces/{id}/places": {
             parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
             get: {
                 tags: ["Provinces"],
@@ -492,7 +492,7 @@ const definition = {
                 responses: { 200: successResponse(), 404: errorResponse("Province not found") },
             },
         },
-        "/api/trips/{tripId}/stops": {
+        "/trips/{tripId}/stops": {
             parameters: [{ name: "tripId", in: "path", required: true, schema: { type: "string" } }],
             get: { tags: ["Trip stops"], security: bearer, summary: "List a trip's stops", responses: { 200: successResponse() } },
             post: {
@@ -503,7 +503,7 @@ const definition = {
                 responses: { 201: successResponse("Stop created"), 422: errorResponse("Invalid stop") },
             },
         },
-        "/api/trips/{tripId}/stops/reorder": {
+        "/trips/{tripId}/stops/reorder": {
             patch: {
                 tags: ["Trip stops"],
                 security: bearer,
@@ -513,7 +513,7 @@ const definition = {
                 responses: { 200: successResponse(), 422: errorResponse("Invalid stop ordering") },
             },
         },
-        "/api/trip-stops/{id}": {
+        "/trip-stops/{id}": {
             parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
             patch: {
                 tags: ["Trip stops"],
@@ -524,7 +524,7 @@ const definition = {
             },
             delete: { tags: ["Trip stops"], security: bearer, summary: "Soft-delete a stop", responses: { 204: { description: "Deleted" } } },
         },
-        "/api/trip-stops/{tripStopId}/review": {
+        "/trip-stops/{tripStopId}/review": {
             parameters: [{ name: "tripStopId", in: "path", required: true, schema: { type: "string" } }],
             get: { tags: ["Reviews"], security: bearer, summary: "Get a stop review", responses: { 200: successResponse(), 404: errorResponse("No review") } },
             put: {

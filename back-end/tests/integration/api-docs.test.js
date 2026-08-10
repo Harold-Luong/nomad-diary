@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 
-import app from "../../src/app.js";
+import { loadEnvironment } from "../../src/config/load-environment.js";
+
+loadEnvironment("development");
+
+const { default: app } = await import("../../src/app.js");
 
 let server;
 let baseUrl;
@@ -25,7 +29,7 @@ after(
 );
 
 test("health endpoint returns the standard success envelope", async () => {
-    const response = await fetch(`${baseUrl}/api/health`);
+    const response = await fetch(`${baseUrl}/health`);
     const body = await response.json();
 
     assert.equal(response.status, 200);
@@ -40,12 +44,12 @@ test("Swagger exposes an OpenAPI document", async () => {
     assert.equal(response.status, 200);
     assert.equal(document.openapi, "3.0.3");
     assert.equal(document.servers[0].url, "/");
-    assert.ok(document.paths["/api/auth/login"]);
-    assert.ok(document.paths["/api/trips"]);
-    assert.ok(document.paths["/api/provinces"]);
-    assert.ok(document.paths["/api/provinces/visited"]);
-    assert.ok(document.paths["/api/provinces/{id}"]);
-    assert.ok(document.paths["/api/provinces/{id}/places"]);
+    assert.ok(document.paths["/auth/login"]);
+    assert.ok(document.paths["/trips"]);
+    assert.ok(document.paths["/provinces"]);
+    assert.ok(document.paths["/provinces/visited"]);
+    assert.ok(document.paths["/provinces/{id}"]);
+    assert.ok(document.paths["/provinces/{id}/places"]);
     assert.deepEqual(
         document.components.schemas.LoginInput.required,
         ["identifier", "password"],
@@ -53,21 +57,21 @@ test("Swagger exposes an OpenAPI document", async () => {
     assert.equal(document.components.schemas.LoginInput.properties.email, undefined);
     assert.ok(document.components.schemas.TripInput.properties.thumbnailUrl);
     assert.ok(
-        document.paths["/api/trips"].get.parameters.some(
+        document.paths["/trips"].get.parameters.some(
             (parameter) => parameter.name === "sort",
         ),
     );
     assert.ok(document.components.schemas.ProvinceTracking);
     assert.ok(document.components.schemas.ProvincePlaceTracking);
     assert.ok(
-        document.paths["/api/provinces/{id}/places"].get.parameters.some(
+        document.paths["/provinces/{id}/places"].get.parameters.some(
             (parameter) => parameter.name === "visited",
         ),
     );
 });
 
 test("invalid JSON returns a client error instead of an internal server error", async () => {
-    const response = await fetch(`${baseUrl}/api/auth/login`, {
+    const response = await fetch(`${baseUrl}/auth/login`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: '{"identifier":"nomad@example.com",}',

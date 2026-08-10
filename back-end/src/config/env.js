@@ -11,8 +11,8 @@ const parseBoolean = (value, fallback = false) => {
     return value.toLowerCase() === "true";
 };
 
-const splitOrigins = (value) =>
-    (value || "http://localhost:5173")
+const splitOrigins = (value = "") =>
+    value
         .split(",")
         .map((origin) => origin.trim())
         .filter(Boolean);
@@ -27,7 +27,7 @@ export const env = Object.freeze({
     database: {
         host: process.env.DATABASE_HOST || "127.0.0.1",
         port: parsePort(process.env.DATABASE_PORT || 5432),
-        database: process.env.DATABASE_NAME|| "nomad_diary",
+        database: process.env.DATABASE_NAME || "nomad_diary",
         user: process.env.DATABASE_USER || "postgres",
         password: process.env.DATABASE_PASSWORD,
         ssl: parseBoolean(process.env.DATABASE_SSL),
