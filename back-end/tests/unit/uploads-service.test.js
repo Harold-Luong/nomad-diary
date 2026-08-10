@@ -4,11 +4,15 @@ import test from "node:test";
 import { S3Client } from "@aws-sdk/client-s3";
 
 import { loadEnvironment } from "../../src/config/load-environment.js";
-import { PRESIGNED_IMAGE_EXPIRES_IN_SECONDS, PRESIGNED_UPLOAD_EXPIRES_IN_SECONDS } from "../../src/shared/constants/image.js";
+import { PRESIGNED_UPLOAD_EXPIRES_IN_SECONDS } from "../../src/shared/constants/image.js";
 
 loadEnvironment("development");
 
-const { createPresignedImageUrl, createPresignedUpload } = await import("../../src/modules/uploads/uploads.service.js");
+const {
+    createImageUrl,
+    createPresignedUpload,
+    isOwnedImageObjectKey,
+} = await import("../../src/modules/uploads/uploads.service.js");
 
 const client = new S3Client({
     region: "ap-southeast-1",
@@ -56,44 +60,56 @@ test("presigned S3 PUT URL expires after exactly five minutes", async () => {
     );
 });
 
-test("presigned S3 GET URL reads an image owned by the current user", async () => {
+test("CloudFront image URL is built from an image owned by the current user", () => {
     const objectKey =
-        "users/42/image/2bb95131-6918-4d70-813a-33f916edb781.webp";
-    const result = await createPresignedImageUrl("42", objectKey, {
-        client,
+        "users/42/images/2bb95131-6918-4d70-813a-33f916edb781.webp";
+    const result = createImageUrl("42", objectKey, {
         configuration: {
-            region: "ap-southeast-1",
-            bucketName: "nomad-diary-test",
+            imageBaseUrl: "https://images.example.cloudfront.net/",
         },
     });
-    const signedUrl = new URL(result.imageUrl);
 
-    assert.equal(
-        signedUrl.searchParams.get("X-Amz-Expires"),
-        String(PRESIGNED_IMAGE_EXPIRES_IN_SECONDS),
-    );
-    assert.equal(decodeURIComponent(signedUrl.pathname), `/${objectKey}`);
     assert.deepEqual(result, {
-        imageUrl: result.imageUrl,
+        imageUrl: `https://images.example.cloudfront.net/${objectKey}`,
         objectKey,
-        expiresIn: 300,
-        method: "GET",
     });
 });
 
-test("presigned S3 GET URL hides images owned by another user", async () => {
-    await assert.rejects(
-        createPresignedImageUrl(
+test("CloudFront image URL hides images owned by another user", () => {
+    assert.throws(
+        () => createImageUrl(
             "42",
-            "users/7/image/2bb95131-6918-4d70-813a-33f916edb781.jpg",
+            "users/7/images/2bb95131-6918-4d70-813a-33f916edb781.jpg",
             {
-                client,
                 configuration: {
-                    region: "ap-southeast-1",
-                    bucketName: "nomad-diary-test",
+                    imageBaseUrl: "https://images.example.cloudfront.net",
                 },
             },
         ),
         (error) => error.code === "IMAGE_NOT_FOUND" && error.statusCode === 404,
     );
+});
+
+test("CloudFront image URL requires CDN configuration", () => {
+    assert.throws(
+        () => createImageUrl(
+            "42",
+            "users/42/images/2bb95131-6918-4d70-813a-33f916edb781.jpg",
+            { configuration: {} },
+        ),
+        (error) =>
+            error.code === "IMAGE_CDN_NOT_CONFIGURED" &&
+            error.statusCode === 500,
+    );
+});
+
+test("stored image keys are scoped by user and upload purpose", () => {
+    const avatarKey =
+        "users/42/avatar/2bb95131-6918-4d70-813a-33f916edb781.jpg";
+
+    assert.equal(isOwnedImageObjectKey("42", avatarKey), true);
+    assert.equal(isOwnedImageObjectKey("42", avatarKey, "avatar"), true);
+    assert.equal(isOwnedImageObjectKey("42", avatarKey, "trip-cover"), false);
+    assert.equal(isOwnedImageObjectKey("7", avatarKey), false);
+    assert.equal(isOwnedImageObjectKey("42", "users/42/images/not-a-uuid.jpg"), false);
 });

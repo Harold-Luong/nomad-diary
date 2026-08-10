@@ -41,7 +41,19 @@ export const ERRORS = Object.freeze({
         "S3_UPLOAD_NOT_CONFIGURED",
         "S3 image uploads are not configured",
     ),
+    IMAGE_CDN_NOT_CONFIGURED: defineError(
+        "IMAGE_CDN_NOT_CONFIGURED",
+        "The image CDN is not configured",
+    ),
     IMAGE_NOT_FOUND: defineError("IMAGE_NOT_FOUND", "Image not found"),
+    IMAGE_COVER_EXISTS: defineError(
+        "IMAGE_COVER_EXISTS",
+        "The trip already has an active cover image",
+    ),
+    INVALID_IMAGE_OBJECT_KEY: defineError(
+        "INVALID_IMAGE_OBJECT_KEY",
+        "Image object key does not belong to the authenticated user",
+    ),
     RATE_LIMITED: defineError(
         "RATE_LIMITED",
         "Too many requests. Please try again later.",

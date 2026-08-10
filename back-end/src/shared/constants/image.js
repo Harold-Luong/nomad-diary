@@ -8,8 +8,7 @@ export const IMAGE_FILE_EXTENSIONS = Object.freeze({
 export const UPLOAD_PURPOSES = Object.freeze([
     "avatar",
     "trip-cover",
-    "image",
+    "images",
 ]);
 
 export const PRESIGNED_UPLOAD_EXPIRES_IN_SECONDS = 5 * 60;
-export const PRESIGNED_IMAGE_EXPIRES_IN_SECONDS = PRESIGNED_UPLOAD_EXPIRES_IN_SECONDS;

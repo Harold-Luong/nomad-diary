@@ -62,6 +62,7 @@ const definition = {
         { name: "Provinces" },
         { name: "Trip stops" },
         { name: "Reviews" },
+        { name: "Images" },
         { name: "Uploads" },
     ],
     components: {
@@ -104,12 +105,12 @@ const definition = {
                 required: ["username", "email", "password"],
                 properties: {
                     username: { type: "string", example: "nomad" },
-                    email: { type: "string", format: "email", example: "nomad@example.com" },
+                    email: { type: "string", format: "email", example: "luong@gmail.com" },
                     password: {
                         type: "string",
                         format: "password",
                         minLength: 8,
-                        example: "Password123!",
+                        example: "12345678",
                     },
                     displayName: { type: "string", example: "Nomad" },
                 },
@@ -121,12 +122,12 @@ const definition = {
                     identifier: {
                         type: "string",
                         description: "Email or username",
-                        example: "nomad@example.com",
+                        example: "luong@gmail.com",
                     },
                     password: {
                         type: "string",
                         format: "password",
-                        example: "Password123!",
+                        example: "12345678",
                     },
                 },
             },
@@ -141,7 +142,11 @@ const definition = {
                 type: "object",
                 properties: {
                     displayName: { type: "string", nullable: true },
-                    avatarUrl: { type: "string", format: "uri", nullable: true },
+                    avatarObjectKey: {
+                        type: "string",
+                        nullable: true,
+                        example: "users/3/avatar/2bb95131-6918-4d70-813a-33f916edb781.jpg",
+                    },
                     bio: { type: "string", nullable: true },
                 },
             },
@@ -160,7 +165,11 @@ const definition = {
                     title: { type: "string", example: "Da Lat 2026" },
                     slug: { type: "string", example: "da-lat-2026" },
                     description: { type: "string", nullable: true },
-                    thumbnailUrl: { type: "string", format: "uri", nullable: true },
+                    thumbnailObjectKey: {
+                        type: "string",
+                        nullable: true,
+                        example: "users/3/trip-cover/2bb95131-6918-4d70-813a-33f916edb781.jpg",
+                    },
                     status: {
                         type: "integer",
                         enum: TRIP_STATUS_VALUES,
@@ -178,11 +187,98 @@ const definition = {
                     title: { type: "string", example: "Da Lat 2026 updated" },
                     slug: { type: "string", example: "da-lat-2026-updated" },
                     description: { type: "string", nullable: true },
-                    thumbnailUrl: { type: "string", format: "uri", nullable: true },
+                    thumbnailObjectKey: {
+                        type: "string",
+                        nullable: true,
+                        example: "users/3/trip-cover/2bb95131-6918-4d70-813a-33f916edb781.jpg",
+                    },
                     status: { type: "integer", enum: TRIP_STATUS_VALUES },
                     startDate: { type: "string", format: "date", nullable: true },
                     endDate: { type: "string", format: "date", nullable: true },
                     isPublic: { type: "boolean" },
+                },
+            },
+            ImageInput: {
+                type: "object",
+                required: ["tripId", "imageObjectKey"],
+                properties: {
+                    tripId: { type: "string", example: "3" },
+                    tripStopId: { type: "string", nullable: true, example: "12" },
+                    imageObjectKey: {
+                        type: "string",
+                        example: "users/3/images/2bb95131-6918-4d70-813a-33f916edb781.jpg",
+                    },
+                    thumbnailObjectKey: {
+                        type: "string",
+                        nullable: true,
+                        example: "users/3/images/9de575fe-2598-4772-aef8-bbf304f98a1e.jpg",
+                    },
+                    originalFilename: { type: "string", nullable: true },
+                    description: { type: "string", nullable: true },
+                    capturedAt: { type: "string", format: "date-time", nullable: true },
+                    latitude: { type: "number", minimum: -90, maximum: 90, nullable: true },
+                    longitude: { type: "number", minimum: -180, maximum: 180, nullable: true },
+                    width: { type: "integer", minimum: 1, nullable: true },
+                    height: { type: "integer", minimum: 1, nullable: true },
+                    fileSize: { type: "integer", minimum: 0, nullable: true },
+                    mimeType: {
+                        type: "string",
+                        enum: ["image/jpeg", "image/png", "image/webp", "image/avif"],
+                        nullable: true,
+                    },
+                    sortOrder: { type: "integer", minimum: 0, default: 0 },
+                    isCover: { type: "boolean", default: false },
+                    isFavorite: { type: "boolean", default: false },
+                    aiTags: { type: "array", nullable: true, items: { type: "object" } },
+                },
+            },
+            ImageUpdateInput: {
+                type: "object",
+                minProperties: 1,
+                properties: {
+                    tripStopId: { type: "string", nullable: true },
+                    imageObjectKey: { type: "string" },
+                    thumbnailObjectKey: { type: "string", nullable: true },
+                    originalFilename: { type: "string", nullable: true },
+                    description: { type: "string", nullable: true },
+                    capturedAt: { type: "string", format: "date-time", nullable: true },
+                    latitude: { type: "number", nullable: true },
+                    longitude: { type: "number", nullable: true },
+                    width: { type: "integer", nullable: true },
+                    height: { type: "integer", nullable: true },
+                    fileSize: { type: "integer", nullable: true },
+                    mimeType: { type: "string", nullable: true },
+                    sortOrder: { type: "integer" },
+                    isCover: { type: "boolean" },
+                    isFavorite: { type: "boolean" },
+                    aiTags: { type: "array", nullable: true, items: { type: "object" } },
+                },
+            },
+            Image: {
+                type: "object",
+                required: ["id", "tripId", "imageUrl", "imageObjectKey"],
+                properties: {
+                    id: { type: "string" },
+                    tripId: { type: "string" },
+                    tripStopId: { type: "string", nullable: true },
+                    imageUrl: {
+                        type: "string",
+                        format: "uri",
+                        description: "Stable CloudFront URL derived from imageObjectKey",
+                    },
+                    imageObjectKey: { type: "string" },
+                    thumbnailUrl: {
+                        type: "string",
+                        format: "uri",
+                        nullable: true,
+                        description: "Stable CloudFront URL derived from thumbnailObjectKey",
+                    },
+                    thumbnailObjectKey: { type: "string", nullable: true },
+                    originalFilename: { type: "string", nullable: true },
+                    description: { type: "string", nullable: true },
+                    capturedAt: { type: "string", format: "date-time", nullable: true },
+                    isCover: { type: "boolean" },
+                    isFavorite: { type: "boolean" },
                 },
             },
             PresignedUploadInput: {
@@ -192,7 +288,7 @@ const definition = {
                     fileName: { type: "string", example: "da-lat.jpg" },
                     contentType: {
                         type: "string",
-                        enum: ["image/jpeg", "image/png", "image/webp"],
+                        enum: ["image/jpeg", "image/png", "image/webp", "image/avif"],
                     },
                     fileSize: {
                         type: "integer",
@@ -201,22 +297,9 @@ const definition = {
                     },
                     purpose: {
                         type: "string",
-                        enum: ["avatar", "trip-cover", "image"],
-                        default: "image",
+                        enum: ["avatar", "trip-cover", "images"],
+                        default: "images",
                     },
-                },
-            },
-            PresignedImage: {
-                type: "object",
-                required: ["imageUrl", "objectKey", "expiresIn", "method"],
-                properties: {
-                    imageUrl: { type: "string", format: "uri" },
-                    objectKey: {
-                        type: "string",
-                        example: "users/3/image/2bb95131-6918-4d70-813a-33f916edb781.jpg",
-                    },
-                    expiresIn: { type: "integer", example: 300 },
-                    method: { type: "string", enum: ["GET"] },
                 },
             },
             ProvinceTracking: {
@@ -480,31 +563,110 @@ const definition = {
                 responses: { 201: successResponse("Trip created"), 422: errorResponse("Invalid trip") },
             },
         },
-        "/uploads/presigned-url": {
+        "/images": {
             get: {
-                tags: ["Uploads"],
+                tags: ["Images"],
                 security: bearer,
-                summary: "Create a presigned S3 image URL valid for 5 minutes",
+                summary: "List images owned by the current user",
                 parameters: [
+                    { name: "tripId", in: "query", schema: { type: "string" } },
+                    { name: "tripStopId", in: "query", schema: { type: "string" } },
+                    { name: "placeId", in: "query", schema: { type: "string" } },
+                    { name: "provinceId", in: "query", schema: { type: "string" } },
+                    { name: "favorite", in: "query", schema: { type: "boolean" } },
+                    { name: "cover", in: "query", schema: { type: "boolean" } },
+                    { name: "from", in: "query", schema: { type: "string", format: "date" } },
+                    { name: "to", in: "query", schema: { type: "string", format: "date" } },
                     {
-                        name: "objectKey",
+                        name: "sort",
                         in: "query",
-                        required: true,
-                        schema: { type: "string" },
-                        example: "users/3/image/2bb95131-6918-4d70-813a-33f916edb781.jpg",
+                        schema: {
+                            type: "string",
+                            enum: [
+                                "createdAtDesc",
+                                "createdAtAsc",
+                                "capturedAtDesc",
+                                "capturedAtAsc",
+                                "sortOrderAsc",
+                                "sortOrderDesc",
+                            ],
+                            default: "createdAtDesc",
+                        },
                     },
+                    { name: "page", in: "query", schema: { type: "integer", default: PAGINATION.DEFAULT_PAGE } },
+                    { name: "pageSize", in: "query", schema: { type: "integer", default: PAGINATION.DEFAULT_PAGE_SIZE, maximum: PAGINATION.MAX_PAGE_SIZE } },
                 ],
                 responses: {
-                    200: successDataResponse(
-                        { $ref: "#/components/schemas/PresignedImage" },
-                        "Presigned image URL created",
-                    ),
+                    200: successResponse("Images listed"),
                     401: errorResponse("Unauthenticated"),
-                    404: errorResponse("Image not found"),
-                    422: errorResponse("Invalid object key"),
-                    500: errorResponse("S3 upload is not configured"),
                 },
             },
+            post: {
+                tags: ["Images"],
+                security: bearer,
+                summary: "Persist metadata for an uploaded image object",
+                requestBody: {
+                    required: true,
+                    content: {
+                        "application/json": {
+                            schema: { $ref: "#/components/schemas/ImageInput" },
+                        },
+                    },
+                },
+                responses: {
+                    201: successDataResponse(
+                        { $ref: "#/components/schemas/Image" },
+                        "Image created",
+                    ),
+                    404: errorResponse("Trip or trip stop not found"),
+                    409: errorResponse("Trip cover already exists"),
+                    422: errorResponse("Invalid image metadata or object key"),
+                },
+            },
+        },
+        "/images/{id}": {
+            parameters: [
+                { name: "id", in: "path", required: true, schema: { type: "string" } },
+            ],
+            get: {
+                tags: ["Images"],
+                security: bearer,
+                summary: "Get an owned image",
+                responses: {
+                    200: successDataResponse({ $ref: "#/components/schemas/Image" }),
+                    404: errorResponse("Image not found"),
+                },
+            },
+            patch: {
+                tags: ["Images"],
+                security: bearer,
+                summary: "Update owned image metadata or object keys",
+                requestBody: {
+                    required: true,
+                    content: {
+                        "application/json": {
+                            schema: { $ref: "#/components/schemas/ImageUpdateInput" },
+                        },
+                    },
+                },
+                responses: {
+                    200: successDataResponse({ $ref: "#/components/schemas/Image" }),
+                    404: errorResponse("Image or trip stop not found"),
+                    409: errorResponse("Trip cover already exists"),
+                    422: errorResponse("Invalid image metadata or object key"),
+                },
+            },
+            delete: {
+                tags: ["Images"],
+                security: bearer,
+                summary: "Soft-delete an owned image record",
+                responses: {
+                    204: { description: "Image deleted" },
+                    404: errorResponse("Image not found"),
+                },
+            },
+        },
+        "/uploads/presigned-url": {
             post: {
                 tags: ["Uploads"],
                 security: bearer,

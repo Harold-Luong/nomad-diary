@@ -6,7 +6,7 @@ const userColumns = `
     email,
     password_hash,
     display_name,
-    avatar_url,
+    avatar_key,
     bio,
     created_at,
     updated_at
@@ -96,8 +96,8 @@ export async function updateActiveUserProfile(userId, profile, executor = query)
         setField("display_name", profile.displayName);
     }
 
-    if (profile.avatarUrl !== undefined) {
-        setField("avatar_url", profile.avatarUrl);
+    if (profile.avatarObjectKey !== undefined) {
+        setField("avatar_key", profile.avatarObjectKey);
     }
 
     if (profile.bio !== undefined) {

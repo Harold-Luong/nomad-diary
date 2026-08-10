@@ -11,12 +11,3 @@ export const createPresignedUrl = asyncHandler(async (req, res) => {
 
     return sendSuccess(res, upload, { status: 201 });
 });
-
-export const getPresignedImageUrl = asyncHandler(async (req, res) => {
-    const image = await uploadsService.createPresignedImageUrl(
-        getAuthenticatedUserId(req),
-        req.validated.query.objectKey,
-    );
-
-    return sendSuccess(res, image);
-});

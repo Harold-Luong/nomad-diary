@@ -99,12 +99,14 @@ CORS_ORIGIN=http://localhost:5173,http://localhost:3000
 
 AWS_REGION=ap-southeast-1
 AWS_S3_IMAGE_BUCKET=nomad-diary-img
+AWS_CLOUDFRONT_IMAGE_BASE_URL=https://example.cloudfront.net
 UPLOAD_MAX_SIZE_MB=10
 ```
 
 `AWS_REGION` và `AWS_S3_IMAGE_BUCKET` là bắt buộc khi dùng upload. IAM
-role/user chạy backend cần quyền `s3:PutObject` và `s3:GetObject` cho prefix
-`users/*` trong bucket.
+role/user chạy backend cần quyền `s3:PutObject` cho prefix `users/*` trong bucket.
+`AWS_CLOUDFRONT_IMAGE_BASE_URL` là domain CloudFront dùng để đọc ảnh. Giữ S3
+private và cấp `s3:GetObject` cho CloudFront thông qua Origin Access Control (OAC).
 
 Tạo một secret ngẫu nhiên bằng Node.js:
 
@@ -300,6 +302,7 @@ Response đăng ký/đăng nhập:
       "email": "nomad@example.com",
       "displayName": "Nomad",
       "avatarUrl": null,
+      "avatarObjectKey": null,
       "bio": null,
       "createdAt": "2026-08-02T02:41:16.000Z",
       "updatedAt": "2026-08-02T02:41:16.000Z"
@@ -335,7 +338,7 @@ Cập nhật profile:
 ```json
 {
   "displayName": "Nomad Diary",
-  "avatarUrl": "https://example.com/avatar.jpg",
+  "avatarObjectKey": "users/3/avatar/2bb95131-6918-4d70-813a-33f916edb781.jpg",
   "bio": "Ghi lại những nơi tôi đã đi qua."
 }
 ```
@@ -415,7 +418,7 @@ Tạo chuyến đi:
   "title": "Đà Lạt 2026",
   "slug": "da-lat-2026",
   "description": "Chuyến đi 4 ngày 3 đêm",
-  "thumbnailUrl": "https://example.com/da-lat.jpg",
+  "thumbnailObjectKey": "users/3/trip-cover/2bb95131-6918-4d70-813a-33f916edb781.jpg",
   "status": 1,
   "startDate": "2026-08-20",
   "endDate": "2026-08-24",
@@ -446,7 +449,8 @@ Response chuyến đi:
     "title": "Đà Lạt 2026",
     "slug": "da-lat-2026",
     "description": "Chuyến đi 4 ngày 3 đêm",
-    "thumbnailUrl": "https://example.com/da-lat.jpg",
+    "thumbnailUrl": "https://nomad-diary-images.s3...presigned...",
+    "thumbnailObjectKey": "users/3/trip-cover/2bb95131-6918-4d70-813a-33f916edb781.jpg",
     "status": 1,
     "startDate": "2026-08-20",
     "endDate": "2026-08-24",
@@ -461,7 +465,7 @@ Response chuyến đi:
 ### Uploads API
 
 `POST /uploads/presigned-url` yêu cầu access token và trả về presigned PUT URL
-có hiệu lực đúng 5 phút. API chỉ nhận JPEG, PNG hoặc WebP; dung lượng tối đa
+có hiệu lực đúng 5 phút. API chỉ nhận JPEG, PNG, WebP hoặc AVIF; dung lượng tối đa
 lấy từ `UPLOAD_MAX_SIZE_MB`.
 
 Request:
@@ -475,7 +479,12 @@ Request:
 }
 ```
 
-`purpose` nhận `avatar`, `trip-cover` hoặc `image`; mặc định là `image`.
+`purpose` nhận `avatar`, `trip-cover` hoặc `images`; mặc định là `images`.
+
+Profile nhận `avatarObjectKey`; trip create/update nhận `thumbnailObjectKey`. Backend
+lưu object key ổn định vào `users.avatar_key` hoặc `trips.thumbnail_key`, đồng thời trả object key và một
+URL CloudFront được ghép từ object key khi đọc user/trip. Object key phải thuộc đúng user đăng nhập và
+đúng purpose (`avatar` hoặc `trip-cover`).
 
 Response:
 
@@ -496,25 +505,46 @@ Response:
 
 Frontend phải PUT file gốc vào `uploadUrl`, gửi `Content-Type` đúng như response.
 Bucket S3 phải cho phép CORS `PUT` từ origin của frontend. Lưu `objectKey`
-thay vì URL public; khi cần hiển thị ảnh private, backend sẽ tạo presigned GET URL.
+thay vì URL CloudFront. Khi đọc dữ liệu, backend trả URL ổn định dạng
+`${AWS_CLOUDFRONT_IMAGE_BASE_URL}/${objectKey}`. Không còn presigned GET URL;
+presigned URL chỉ được dùng cho thao tác PUT upload.
 
-`GET /uploads/presigned-url?objectKey=users%2F3%2Fimage%2Fuuid.jpg` yêu cầu
-access token và trả về presigned GET URL có hiệu lực 5 phút. API chỉ ký URL cho
-`objectKey` thuộc user hiện tại.
+### Images API
 
-Response:
+Module images lưu metadata của ảnh đã upload vào bảng `images`. `image_key` là bắt
+buộc; `thumbnail_key` có thể để `NULL`. Cả hai key phải thuộc user đăng nhập và có
+purpose `images`.
+
+| Method | Endpoint | Mô tả |
+| --- | --- | --- |
+| `GET` | `/images` | Danh sách ảnh có phân trang và bộ lọc |
+| `POST` | `/images` | Lưu metadata cho object đã upload |
+| `GET` | `/images/:id` | Đọc một ảnh thuộc user hiện tại |
+| `PATCH` | `/images/:id` | Cập nhật metadata hoặc object key |
+| `DELETE` | `/images/:id` | Soft-delete bản ghi ảnh; không xóa object S3 |
+
+Ví dụ tạo image sau khi PUT file thành công lên presigned URL:
 
 ```json
 {
-  "success": true,
-  "data": {
-    "imageUrl": "https://nomad-diary-images.s3...",
-    "objectKey": "users/3/image/uuid.jpg",
-    "expiresIn": 300,
-    "method": "GET"
-  }
+  "tripId": "7",
+  "tripStopId": "12",
+  "imageObjectKey": "users/3/images/2bb95131-6918-4d70-813a-33f916edb781.jpg",
+  "thumbnailObjectKey": null,
+  "originalFilename": "da-lat.jpg",
+  "capturedAt": "2026-08-20T08:30:00+07:00",
+  "mimeType": "image/jpeg",
+  "fileSize": 2048000,
+  "isCover": false,
+  "isFavorite": true
 }
 ```
+
+`GET /images` hỗ trợ `tripId`, `tripStopId`, `placeId`, `provinceId`, `favorite`,
+`cover`, `from`, `to`, `sort`, `page` và `pageSize`. Mỗi response ảnh trả cả
+`imageObjectKey`/`thumbnailObjectKey` được lưu trong database và
+`imageUrl`/`thumbnailUrl` qua CloudFront. Tất cả truy vấn đều lọc theo trip thuộc user đang đăng nhập và
+bỏ qua record đã soft-delete.
 
 ### Provinces API
 
