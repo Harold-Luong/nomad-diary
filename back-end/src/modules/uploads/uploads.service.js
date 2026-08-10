@@ -1,14 +1,19 @@
 import { randomUUID } from "node:crypto";
 
-import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 import { env } from "../../config/env.js";
 import { getS3Client } from "../../config/s3.js";
 import { ERRORS, errorArgs } from "../../shared/constants/errors.js";
-import { ConfigurationError } from "../../shared/errors/app-error.js";
+import {
+    ConfigurationError,
+    NotFoundError,
+} from "../../shared/errors/app-error.js";
 
 export const PRESIGNED_UPLOAD_EXPIRES_IN_SECONDS = 5 * 60;
+export const PRESIGNED_IMAGE_EXPIRES_IN_SECONDS =
+    PRESIGNED_UPLOAD_EXPIRES_IN_SECONDS;
 
 const FILE_EXTENSIONS = Object.freeze({
     "image/jpeg": "jpg",
@@ -57,5 +62,34 @@ export async function createPresignedUpload(
         headers: {
             "Content-Type": upload.contentType,
         },
+    };
+}
+
+export async function createPresignedImageUrl(
+    userId,
+    objectKey,
+    options = {},
+) {
+    const userPrefix = `users/${userId}/`;
+    if (!objectKey.startsWith(userPrefix)) {
+        throw new NotFoundError(...errorArgs(ERRORS.IMAGE_NOT_FOUND));
+    }
+
+    const configuration = options.configuration ?? env.s3;
+    assertS3UploadConfiguration(configuration);
+    const client = options.client ?? getS3Client();
+    const command = new GetObjectCommand({
+        Bucket: configuration.bucketName,
+        Key: objectKey,
+    });
+    const imageUrl = await getSignedUrl(client, command, {
+        expiresIn: PRESIGNED_IMAGE_EXPIRES_IN_SECONDS,
+    });
+
+    return {
+        imageUrl,
+        objectKey,
+        expiresIn: PRESIGNED_IMAGE_EXPIRES_IN_SECONDS,
+        method: "GET",
     };
 }
