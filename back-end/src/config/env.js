@@ -42,6 +42,11 @@ export const env = Object.freeze({
     jwtRefreshSecret: process.env.JWT_REFRESH_SECRET,
     jwtAccessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN || "15m",
     jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || "30d",
+    s3: {
+        region: process.env.AWS_REGION,
+        bucketName: process.env.AWS_S3_IMAGE_BUCKET,
+        uploadMaxSizeMb: parsePort(process.env.UPLOAD_MAX_SIZE_MB, 10),
+    },
 });
 
 export const hasJwtConfiguration = () =>

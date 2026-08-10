@@ -37,6 +37,10 @@ export const ERRORS = Object.freeze({
         "CORS_ORIGIN_NOT_ALLOWED",
         "The request origin is not allowed",
     ),
+    S3_UPLOAD_NOT_CONFIGURED: defineError(
+        "S3_UPLOAD_NOT_CONFIGURED",
+        "S3 image uploads are not configured",
+    ),
     RATE_LIMITED: defineError(
         "RATE_LIMITED",
         "Too many requests. Please try again later.",

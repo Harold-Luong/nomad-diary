@@ -46,6 +46,7 @@ test("Swagger exposes an OpenAPI document", async () => {
     assert.equal(document.servers[0].url, "/");
     assert.ok(document.paths["/auth/login"]);
     assert.ok(document.paths["/trips"]);
+    assert.ok(document.paths["/uploads/presigned-url"]);
     assert.ok(document.paths["/provinces"]);
     assert.ok(document.paths["/provinces/visited"]);
     assert.ok(document.paths["/provinces/{id}"]);
@@ -56,6 +57,10 @@ test("Swagger exposes an OpenAPI document", async () => {
     );
     assert.equal(document.components.schemas.LoginInput.properties.email, undefined);
     assert.ok(document.components.schemas.TripInput.properties.thumbnailUrl);
+    assert.deepEqual(
+        document.components.schemas.PresignedUploadInput.required,
+        ["fileName", "contentType", "fileSize"],
+    );
     assert.ok(
         document.paths["/trips"].get.parameters.some(
             (parameter) => parameter.name === "sort",

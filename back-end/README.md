@@ -96,7 +96,14 @@ JWT_ACCESS_EXPIRES_IN=15m
 JWT_REFRESH_EXPIRES_IN=30d
 
 CORS_ORIGIN=http://localhost:5173,http://localhost:3000
+
+AWS_REGION=ap-southeast-1
+AWS_S3_IMAGE_BUCKET=nomad-diary-img
+UPLOAD_MAX_SIZE_MB=10
 ```
+
+`AWS_REGION` và `AWS_S3_IMAGE_BUCKET` là bắt buộc khi dùng upload. IAM
+role/user chạy backend cần quyền `s3:PutObject` cho prefix `users/*` trong bucket.
 
 Tạo một secret ngẫu nhiên bằng Node.js:
 
@@ -447,6 +454,46 @@ Response chuyến đi:
   }
 }
 ```
+
+### Uploads API
+
+`POST /api/uploads/presigned-url` yêu cầu access token và trả về presigned PUT URL
+có hiệu lực đúng 5 phút. API chỉ nhận JPEG, PNG hoặc WebP; dung lượng tối đa
+lấy từ `UPLOAD_MAX_SIZE_MB`.
+
+Request:
+
+```json
+{
+  "fileName": "da-lat.jpg",
+  "contentType": "image/jpeg",
+  "fileSize": 2048000,
+  "purpose": "trip-cover"
+}
+```
+
+`purpose` nhận `avatar`, `trip-cover` hoặc `image`; mặc định là `image`.
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "uploadUrl": "https://nomad-diary-images.s3...",
+    "objectKey": "users/3/trip-cover/uuid.jpg",
+    "expiresIn": 300,
+    "method": "PUT",
+    "headers": {
+      "Content-Type": "image/jpeg"
+    }
+  }
+}
+```
+
+Frontend phải PUT file gốc vào `uploadUrl`, gửi `Content-Type` đúng như response.
+Bucket S3 phải cho phép CORS `PUT` từ origin của frontend. Lưu `objectKey`
+thay vì URL public; khi cần hiển thị ảnh private, backend sẽ tạo presigned GET URL.
 
 ### Provinces API
 
