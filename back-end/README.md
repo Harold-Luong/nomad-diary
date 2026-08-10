@@ -103,7 +103,8 @@ UPLOAD_MAX_SIZE_MB=10
 ```
 
 `AWS_REGION` và `AWS_S3_IMAGE_BUCKET` là bắt buộc khi dùng upload. IAM
-role/user chạy backend cần quyền `s3:PutObject` cho prefix `users/*` trong bucket.
+role/user chạy backend cần quyền `s3:PutObject` và `s3:GetObject` cho prefix
+`users/*` trong bucket.
 
 Tạo một secret ngẫu nhiên bằng Node.js:
 
@@ -132,15 +133,17 @@ Chạy bình thường:
 npm.cmd start
 ```
 
-Mặc định API chạy tại `http://localhost:3000`.
+Mặc định API local chạy tại `http://localhost:3000`. Production dùng base URL
+`https://api.nomad-diary.site`; các endpoint được mount trực tiếp sau domain và
+không có tiền tố `/api`.
 
 ## Kiểm tra hệ thống
 
 | URL | Mục đích |
 | --- | --- |
 | `GET /` | Thông tin API |
-| `GET /api/health` | Liveness: tiến trình Express đang chạy |
-| `GET /api/health/ready` | Readiness: kiểm tra cả kết nối PostgreSQL |
+| `GET /health` | Liveness: tiến trình Express đang chạy |
+| `GET /health/ready` | Readiness: kiểm tra cả kết nối PostgreSQL |
 | `GET /api-docs` | Swagger UI |
 | `GET /api-docs.json` | OpenAPI JSON |
 
@@ -167,7 +170,7 @@ http://localhost:3000/api-docs
 
 Quy trình thử API có authentication:
 
-1. Gọi `POST /api/auth/register` để tạo user.
+1. Gọi `POST /auth/register` để tạo user.
 2. Sao chép `accessToken` trong response.
 3. Nhấn nút **Authorize** trên Swagger.
 4. Nhập access token. Swagger sẽ tự thêm header Bearer.
@@ -185,7 +188,7 @@ Authorization: Bearer <accessToken>
 ```
 
 Access token có thời hạn ngắn. Refresh token dùng để tạo cặp token mới và được
-xoay vòng sau mỗi lần gọi `/api/auth/refresh-token`. Database chỉ lưu SHA-256
+xoay vòng sau mỗi lần gọi `/auth/refresh-token`. Database chỉ lưu SHA-256
 hash của refresh token, không lưu token gốc.
 
 ## Chuẩn response
@@ -252,8 +255,8 @@ Các HTTP status thường gặp:
 | Method | Endpoint | Authentication | Mô tả |
 | --- | --- | --- | --- |
 | `GET` | `/` | Không | Tên API |
-| `GET` | `/api/health` | Không | Kiểm tra tiến trình API |
-| `GET` | `/api/health/ready` | Không | Kiểm tra API và PostgreSQL |
+| `GET` | `/health` | Không | Kiểm tra tiến trình API |
+| `GET` | `/health/ready` | Không | Kiểm tra API và PostgreSQL |
 | `GET` | `/api-docs` | Không | Swagger UI |
 | `GET` | `/api-docs.json` | Không | OpenAPI JSON |
 
@@ -261,14 +264,14 @@ Các HTTP status thường gặp:
 
 | Method | Endpoint | Authentication | Mô tả |
 | --- | --- | --- | --- |
-| `POST` | `/api/auth/register` | Không | Đăng ký tài khoản và tạo session |
-| `POST` | `/api/auth/login` | Không | Đăng nhập bằng email hoặc username |
-| `POST` | `/api/auth/refresh-token` | Không | Xoay refresh token và tạo token mới |
-| `POST` | `/api/auth/logout` | Có | Thu hồi session hiện tại |
-| `GET` | `/api/auth/me` | Có | Lấy thông tin user hiện tại |
-| `PATCH` | `/api/auth/me` | Có | Cập nhật profile |
-| `PATCH` | `/api/auth/change-password` | Có | Đổi mật khẩu và thu hồi các session cũ |
-| `DELETE` | `/api/auth/account` | Có | Soft-delete tài khoản |
+| `POST` | `/auth/register` | Không | Đăng ký tài khoản và tạo session |
+| `POST` | `/auth/login` | Không | Đăng nhập bằng email hoặc username |
+| `POST` | `/auth/refresh-token` | Không | Xoay refresh token và tạo token mới |
+| `POST` | `/auth/logout` | Có | Thu hồi session hiện tại |
+| `GET` | `/auth/me` | Có | Lấy thông tin user hiện tại |
+| `PATCH` | `/auth/me` | Có | Cập nhật profile |
+| `PATCH` | `/auth/change-password` | Có | Đổi mật khẩu và thu hồi các session cũ |
+| `DELETE` | `/auth/account` | Có | Soft-delete tài khoản |
 
 Đăng ký:
 
@@ -361,13 +364,13 @@ user hiện tại.
 
 | Method | Endpoint | Mô tả |
 | --- | --- | --- |
-| `GET` | `/api/trips` | Danh sách chuyến đi có lọc và phân trang |
-| `POST` | `/api/trips` | Tạo chuyến đi |
-| `GET` | `/api/trips/:id` | Chi tiết chuyến đi |
-| `PATCH` | `/api/trips/:id` | Cập nhật một phần chuyến đi |
-| `DELETE` | `/api/trips/:id` | Soft-delete chuyến đi |
+| `GET` | `/trips` | Danh sách chuyến đi có lọc và phân trang |
+| `POST` | `/trips` | Tạo chuyến đi |
+| `GET` | `/trips/:id` | Chi tiết chuyến đi |
+| `PATCH` | `/trips/:id` | Cập nhật một phần chuyến đi |
+| `DELETE` | `/trips/:id` | Soft-delete chuyến đi |
 
-Query của `GET /api/trips`:
+Query của `GET /trips`:
 
 | Query | Kiểu | Mặc định | Mô tả |
 | --- | --- | --- | --- |
@@ -392,7 +395,7 @@ titleDesc
 Ví dụ:
 
 ```text
-GET /api/trips?page=1&pageSize=10&status=1&year=2026&sort=startDateAsc
+GET /trips?page=1&pageSize=10&status=1&year=2026&sort=startDateAsc
 ```
 
 Trạng thái chuyến đi:
@@ -457,7 +460,7 @@ Response chuyến đi:
 
 ### Uploads API
 
-`POST /api/uploads/presigned-url` yêu cầu access token và trả về presigned PUT URL
+`POST /uploads/presigned-url` yêu cầu access token và trả về presigned PUT URL
 có hiệu lực đúng 5 phút. API chỉ nhận JPEG, PNG hoặc WebP; dung lượng tối đa
 lấy từ `UPLOAD_MAX_SIZE_MB`.
 
@@ -495,6 +498,24 @@ Frontend phải PUT file gốc vào `uploadUrl`, gửi `Content-Type` đúng nh�
 Bucket S3 phải cho phép CORS `PUT` từ origin của frontend. Lưu `objectKey`
 thay vì URL public; khi cần hiển thị ảnh private, backend sẽ tạo presigned GET URL.
 
+`GET /uploads/presigned-url?objectKey=users%2F3%2Fimage%2Fuuid.jpg` yêu cầu
+access token và trả về presigned GET URL có hiệu lực 5 phút. API chỉ ký URL cho
+`objectKey` thuộc user hiện tại.
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "imageUrl": "https://nomad-diary-images.s3...",
+    "objectKey": "users/3/image/uuid.jpg",
+    "expiresIn": 300,
+    "method": "GET"
+  }
+}
+```
+
 ### Provinces API
 
 Các endpoint tỉnh yêu cầu access token vì thống kê được tính riêng cho user hiện tại.
@@ -503,12 +524,12 @@ một trip đang hoạt động và một place đang hoạt động trong tỉn
 
 | Method | Endpoint | Mô tả |
 | --- | --- | --- |
-| `GET` | `/api/provinces` | Danh sách tỉnh kèm thống kê tracking và phân trang |
-| `GET` | `/api/provinces/visited` | Danh sách tỉnh đã ghé để tô bản đồ |
-| `GET` | `/api/provinces/:id` | Chi tiết tỉnh kèm thống kê của user |
-| `GET` | `/api/provinces/:id/places` | Danh sách địa điểm trong tỉnh kèm lịch sử ghé |
+| `GET` | `/provinces` | Danh sách tỉnh kèm thống kê tracking và phân trang |
+| `GET` | `/provinces/visited` | Danh sách tỉnh đã ghé để tô bản đồ |
+| `GET` | `/provinces/:id` | Chi tiết tỉnh kèm thống kê của user |
+| `GET` | `/provinces/:id/places` | Danh sách địa điểm trong tỉnh kèm lịch sử ghé |
 
-Query của `GET /api/provinces`:
+Query của `GET /provinces`:
 
 | Query | Kiểu | Mặc định | Mô tả |
 | --- | --- | --- | --- |
@@ -518,14 +539,14 @@ Query của `GET /api/provinces`:
 | `search` | string | — | Tìm theo tên hoặc mã tỉnh |
 | `visited` | boolean | — | `true`: đã ghé, `false`: chưa ghé |
 
-`GET /api/provinces/visited` không phân trang để frontend có thể lấy toàn bộ mã tỉnh
+`GET /provinces/visited` không phân trang để frontend có thể lấy toàn bộ mã tỉnh
 đã ghé trong một request và nối `province.code` với `feature.properties.code` của GeoJSON.
 Có thể lọc theo `countryCode`.
 
 Ví dụ lấy các địa điểm đã ghé tại một tỉnh:
 
 ```text
-GET /api/provinces/1/places?visited=true&page=1&pageSize=20
+GET /provinces/1/places?visited=true&page=1&pageSize=20
 ```
 
 Query của endpoint địa điểm gồm `page`, `pageSize`, `search` và `visited=true|false`.
@@ -582,11 +603,11 @@ nhất trong trip.
 
 | Method | Endpoint | Mô tả |
 | --- | --- | --- |
-| `GET` | `/api/trips/:tripId/stops` | Danh sách điểm dừng của trip |
-| `POST` | `/api/trips/:tripId/stops` | Thêm điểm dừng |
-| `PATCH` | `/api/trips/:tripId/stops/reorder` | Sắp xếp lại toàn bộ điểm dừng |
-| `PATCH` | `/api/trip-stops/:id` | Cập nhật điểm dừng |
-| `DELETE` | `/api/trip-stops/:id` | Soft-delete điểm dừng |
+| `GET` | `/trips/:tripId/stops` | Danh sách điểm dừng của trip |
+| `POST` | `/trips/:tripId/stops` | Thêm điểm dừng |
+| `PATCH` | `/trips/:tripId/stops/reorder` | Sắp xếp lại toàn bộ điểm dừng |
+| `PATCH` | `/trip-stops/:id` | Cập nhật điểm dừng |
+| `DELETE` | `/trip-stops/:id` | Soft-delete điểm dừng |
 
 Tạo điểm dừng:
 
@@ -668,9 +689,9 @@ Mỗi trip stop chỉ có tối đa một review đang hoạt động.
 
 | Method | Endpoint | Mô tả |
 | --- | --- | --- |
-| `GET` | `/api/trip-stops/:tripStopId/review` | Lấy review |
-| `PUT` | `/api/trip-stops/:tripStopId/review` | Tạo mới hoặc thay thế review |
-| `DELETE` | `/api/trip-stops/:tripStopId/review` | Soft-delete review |
+| `GET` | `/trip-stops/:tripStopId/review` | Lấy review |
+| `PUT` | `/trip-stops/:tripStopId/review` | Tạo mới hoặc thay thế review |
+| `DELETE` | `/trip-stops/:tripStopId/review` | Soft-delete review |
 
 Tạo hoặc cập nhật review:
 

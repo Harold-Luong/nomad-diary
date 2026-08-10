@@ -19,6 +19,22 @@ const successResponse = (description = "Successful response") => ({
     },
 });
 
+const successDataResponse = (schema, description = "Successful response") => ({
+    description,
+    content: {
+        "application/json": {
+            schema: {
+                type: "object",
+                required: ["success", "data"],
+                properties: {
+                    success: { type: "boolean", example: true },
+                    data: schema,
+                },
+            },
+        },
+    },
+});
+
 const errorResponse = (description) => ({
     description,
     content: {
@@ -188,6 +204,19 @@ const definition = {
                         enum: ["avatar", "trip-cover", "image"],
                         default: "image",
                     },
+                },
+            },
+            PresignedImage: {
+                type: "object",
+                required: ["imageUrl", "objectKey", "expiresIn", "method"],
+                properties: {
+                    imageUrl: { type: "string", format: "uri" },
+                    objectKey: {
+                        type: "string",
+                        example: "users/3/image/2bb95131-6918-4d70-813a-33f916edb781.jpg",
+                    },
+                    expiresIn: { type: "integer", example: 300 },
+                    method: { type: "string", enum: ["GET"] },
                 },
             },
             ProvinceTracking: {
@@ -452,6 +481,30 @@ const definition = {
             },
         },
         "/uploads/presigned-url": {
+            get: {
+                tags: ["Uploads"],
+                security: bearer,
+                summary: "Create a presigned S3 image URL valid for 5 minutes",
+                parameters: [
+                    {
+                        name: "objectKey",
+                        in: "query",
+                        required: true,
+                        schema: { type: "string" },
+                        example: "users/3/image/2bb95131-6918-4d70-813a-33f916edb781.jpg",
+                    },
+                ],
+                responses: {
+                    200: successDataResponse(
+                        { $ref: "#/components/schemas/PresignedImage" },
+                        "Presigned image URL created",
+                    ),
+                    401: errorResponse("Unauthenticated"),
+                    404: errorResponse("Image not found"),
+                    422: errorResponse("Invalid object key"),
+                    500: errorResponse("S3 upload is not configured"),
+                },
+            },
             post: {
                 tags: ["Uploads"],
                 security: bearer,

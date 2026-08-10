@@ -5,9 +5,10 @@ import { loadEnvironment } from "../../src/config/load-environment.js";
 
 loadEnvironment("development");
 
-const { createPresignedUploadSchema } = await import(
-    "../../src/modules/uploads/uploads.schema.js"
-);
+const {
+    createPresignedUploadSchema,
+    getPresignedImageQuerySchema,
+} = await import("../../src/modules/uploads/uploads.schema.js");
 
 test("presigned upload metadata accepts supported images and defaults purpose", () => {
     assert.deepEqual(
@@ -39,6 +40,21 @@ test("presigned upload metadata rejects unsupported and oversized files", () => 
             fileName: "huge.jpg",
             contentType: "image/jpeg",
             fileSize: (10 * 1024 * 1024) + 1,
+        }).success,
+        false,
+    );
+});
+
+test("presigned image query only accepts keys created by the upload API", () => {
+    const objectKey =
+        "users/42/trip-cover/2bb95131-6918-4d70-813a-33f916edb781.jpg";
+
+    assert.deepEqual(getPresignedImageQuerySchema.parse({ objectKey }), {
+        objectKey,
+    });
+    assert.equal(
+        getPresignedImageQuerySchema.safeParse({
+            objectKey: "users/42/document/readme.pdf",
         }).success,
         false,
     );

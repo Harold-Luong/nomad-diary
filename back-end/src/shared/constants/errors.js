@@ -41,6 +41,7 @@ export const ERRORS = Object.freeze({
         "S3_UPLOAD_NOT_CONFIGURED",
         "S3 image uploads are not configured",
     ),
+    IMAGE_NOT_FOUND: defineError("IMAGE_NOT_FOUND", "Image not found"),
     RATE_LIMITED: defineError(
         "RATE_LIMITED",
         "Too many requests. Please try again later.",

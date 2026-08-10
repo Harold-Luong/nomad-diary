@@ -26,3 +26,17 @@ export const createPresignedUploadSchema = z
         purpose: z.enum(UPLOAD_PURPOSES).default("image"),
     })
     .strict();
+
+export const getPresignedImageQuerySchema = z
+    .object({
+        objectKey: z
+            .string()
+            .trim()
+            .min(1)
+            .max(1_024)
+            .regex(
+                /^users\/[^/]+\/(?:avatar|trip-cover|image)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp)$/i,
+                "objectKey must be a key returned by the upload API",
+            ),
+    })
+    .strict();
