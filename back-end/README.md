@@ -30,9 +30,23 @@ cd "D:\Nomad Diary\nomad-diary\back-end"
 npm.cmd install
 ```
 
-Khi chạy local, ứng dụng tự đọc `.env.example`. Khi chạy production với
-`NODE_ENV=production`, ứng dụng đọc `.env`; tạo file này và thay thông tin
-PostgreSQL cùng hai JWT secret bằng giá trị thật.
+Backend chỉ hỗ trợ hai môi trường runtime. `NODE_ENV` phải được truyền vào tiến
+trình trước khi Node.js khởi động để chọn file cấu hình:
+
+| `NODE_ENV` | File được đọc | Mục đích |
+| --- | --- | --- |
+| Không khai báo hoặc `development` | `.env.example` | Chạy local |
+| `production` | `.env` | Chạy production |
+
+Giá trị khác như `dev`, `prod`, `test` hoặc `staging` sẽ làm server dừng với lỗi
+cấu hình rõ ràng. File được resolve từ thư mục `back-end`, nên kết quả không phụ
+thuộc terminal đang đứng ở thư mục nào. Biến đã được cung cấp từ OS, container
+hoặc PM2 luôn được ưu tiên hơn giá trị cùng tên trong file.
+
+Trước khi chạy production, tạo `.env` từ `.env.example`, đặt
+`NODE_ENV=production` và thay thông tin PostgreSQL, CORS cùng hai JWT secret bằng
+giá trị thật. `.env` bị Git bỏ qua; không đưa secret production vào
+`.env.example`.
 
 ### 1. Tạo database
 
@@ -757,8 +771,9 @@ npm.cmd run dev
 
 ### Cấu hình local hoặc production không được nhận
 
-Khi chạy local, server tự đọc `.env.example`. Khi chạy production, tạo file `.env`
-và đặt `NODE_ENV=production` trước khi khởi động server:
+Khi chạy local, không khai báo `NODE_ENV` hoặc đặt chính xác
+`NODE_ENV=development`; server sẽ đọc `.env.example`. Khi chạy production, tạo
+file `.env` và đặt `NODE_ENV=production` trước khi khởi động server:
 
 ```powershell
 Copy-Item .env.example .env
@@ -766,8 +781,9 @@ $env:NODE_ENV = "production"
 npm.cmd start
 ```
 
-`NODE_ENV` phải được đặt trước khi Node.js khởi động để server chọn đúng file.
-Sau khi sửa file cấu hình, phải khởi động lại server.
+Không dùng tên rút gọn `dev` hoặc `prod`. `NODE_ENV` trong file không thể tự chọn
+chính file đó; giá trị từ tiến trình khởi động mới là giá trị quyết định. Sau khi
+sửa cấu hình, phải khởi động lại server.
 
 ### `CORS_ORIGIN_NOT_ALLOWED`
 

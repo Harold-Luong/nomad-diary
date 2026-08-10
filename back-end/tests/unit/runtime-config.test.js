@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
+import { loadEnvironment } from "../../src/config/load-environment.js";
+
+loadEnvironment("development");
+
+const {
     assertRuntimeConfiguration,
     getRuntimeConfigurationIssues,
-} from "../../src/config/env.js";
+} = await import("../../src/config/env.js");
 
 const validConfiguration = {
     nodeEnv: "production",
