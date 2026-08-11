@@ -1,4 +1,5 @@
 export { useAuthStore } from './auth.js'
+export { useImagesStore } from './images.js'
 export { useProvincesStore } from './provinces.js'
 export { useReviewsStore } from './reviews.js'
 export { useTripsStore } from './trips.js'

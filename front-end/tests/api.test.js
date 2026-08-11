@@ -1,12 +1,22 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import axios from 'axios'
+
+vi.mock('axios', () => ({
+    default: {
+        request: vi.fn(),
+        isCancel: vi.fn(() => false),
+    },
+}))
 
 import {
     authApi,
     healthApi,
+    imagesApi,
     provincesApi,
     reviewsApi,
     tripStopsApi,
     tripsApi,
+    uploadsApi,
 } from '@/api/index.js'
 import {
     ApiError,
@@ -29,6 +39,7 @@ beforeEach(() => {
     clearAccessToken()
     clearUnauthorizedHandler()
     vi.stubGlobal('fetch', vi.fn())
+    axios.request.mockReset()
 })
 
 test('buildQuery omits empty values and preserves supported filters', () => {
@@ -46,7 +57,7 @@ test('public auth calls do not send a stale bearer token', async () => {
     await authApi.login({ identifier: 'nomad@example.com', password: 'Password123!' })
 
     const [url, options] = fetch.mock.calls[0]
-    expect(url).toBe('/api/auth/login')
+    expect(url).toBe('http://localhost:3000/auth/login')
     expect(options.method).toBe('POST')
     expect(options.headers.has('Authorization')).toBe(false)
 })
@@ -60,7 +71,7 @@ test('private trip calls include bearer token and encoded filters', async () => 
     await tripsApi.list({ page: 2, pageSize: 10, status: 3 })
 
     const [url, options] = fetch.mock.calls[0]
-    expect(url).toBe('/api/trips?page=2&pageSize=10&status=3')
+    expect(url).toBe('http://localhost:3000/trips?page=2&pageSize=10&status=3')
     expect(options.headers.get('Authorization')).toBe('Bearer access-token')
 })
 
@@ -153,9 +164,9 @@ test('trip stop reorder and review functions use backend routes', async () => {
     await tripStopsApi.reorder('7', [{ id: '12', visitOrder: 1 }])
     await reviewsApi.upsert('12', { rating: 5 })
 
-    expect(fetch.mock.calls[0][0]).toBe('/api/trips/7/stops/reorder')
+    expect(fetch.mock.calls[0][0]).toBe('http://localhost:3000/trips/7/stops/reorder')
     expect(fetch.mock.calls[0][1].method).toBe('PATCH')
-    expect(fetch.mock.calls[1][0]).toBe('/api/trip-stops/12/review')
+    expect(fetch.mock.calls[1][0]).toBe('http://localhost:3000/trip-stops/12/review')
     expect(fetch.mock.calls[1][1].method).toBe('PUT')
 })
 
@@ -167,7 +178,7 @@ test('health API calls readiness without authentication', async () => {
 
     await healthApi.readiness()
 
-    expect(fetch.mock.calls[0][0]).toBe('/api/health/ready')
+    expect(fetch.mock.calls[0][0]).toBe('http://localhost:3000/health/ready')
     expect(fetch.mock.calls[0][1].headers.has('Authorization')).toBe(false)
 })
 
@@ -185,15 +196,125 @@ test('province API uses the implemented backend routes and filters', async () =>
     await provincesApi.listPlaces('68', { search: 'lake', visited: false })
 
     expect(fetch.mock.calls.map(([url]) => url)).toEqual([
-        '/api/provinces?countryCode=VN&visited=true&page=2',
-        '/api/provinces/visited?countryCode=VN',
-        '/api/provinces/68',
-        '/api/provinces/68/places?search=lake&visited=false',
+        'http://localhost:3000/provinces?countryCode=VN&visited=true&page=2',
+        'http://localhost:3000/provinces/visited?countryCode=VN',
+        'http://localhost:3000/provinces/68',
+        'http://localhost:3000/provinces/68/places?search=lake&visited=false',
     ])
     expect(
         fetch.mock.calls.every(([, options]) =>
             options.headers.get('Authorization') === 'Bearer access-token'),
     ).toBe(true)
+})
+
+test('image upload gets a PUT URL and reports direct-to-storage progress', async () => {
+    setAccessToken('access-token')
+    const file = {
+        name: 'da-lat.webp',
+        type: 'image/webp',
+        size: 2048,
+    }
+    const objectKey = 'users/3/trip-cover/2bb95131-6918-4d70-813a-33f916edb781.webp'
+
+    fetch.mockResolvedValueOnce(
+        jsonResponse({
+            success: true,
+            data: {
+                uploadUrl: 'https://s3.example/upload',
+                objectKey,
+                method: 'PUT',
+                headers: { 'Content-Type': 'image/webp' },
+            },
+        }, 201),
+    )
+    axios.request.mockImplementationOnce(async (options) => {
+        options.onUploadProgress({ loaded: 1024, total: 2048 })
+        options.onUploadProgress({ loaded: 2048, total: 2048 })
+        return { status: 200 }
+    })
+    const onProgress = vi.fn()
+
+    await expect(uploadsApi.uploadImage(file, 'trip-cover', { onProgress })).resolves.toEqual({
+        objectKey,
+    })
+
+    expect(fetch.mock.calls[0][0]).toBe('http://localhost:3000/uploads/presigned-url')
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+        fileName: 'da-lat.webp',
+        contentType: 'image/webp',
+        fileSize: 2048,
+        purpose: 'trip-cover',
+    })
+    expect(axios.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+            url: 'https://s3.example/upload',
+            method: 'PUT',
+            headers: { 'Content-Type': 'image/webp' },
+            data: file,
+        }),
+    )
+    expect(onProgress.mock.calls.map(([value]) => value)).toEqual([0, 50, 100, 100])
+    expect(fetch).toHaveBeenCalledTimes(1)
+})
+
+test('image upload rejects unsupported files before calling the backend', async () => {
+    await expect(
+        uploadsApi.uploadImage(
+            { name: 'vector.svg', type: 'image/svg+xml', size: 100 },
+            'avatar',
+        ),
+    ).rejects.toMatchObject({ code: 'UNSUPPORTED_IMAGE', status: 422 })
+    expect(fetch).not.toHaveBeenCalled()
+})
+
+test('images API maps list, create, update and delete to backend routes', async () => {
+    setAccessToken('access-token')
+    fetch
+        .mockResolvedValueOnce(jsonResponse({ success: true, data: [], meta: { total: 0 } }))
+        .mockResolvedValueOnce(jsonResponse({ success: true, data: { id: '9' } }, 201))
+        .mockResolvedValueOnce(jsonResponse({ success: true, data: { id: '9', isFavorite: true } }))
+        .mockResolvedValueOnce(new Response(null, { status: 204 }))
+
+    await imagesApi.list({ tripId: '7', tripStopId: '12', page: 2 })
+    await imagesApi.create({
+        tripId: '7',
+        tripStopId: '12',
+        imageObjectKey: 'users/3/images/2bb95131-6918-4d70-813a-33f916edb781.webp',
+    })
+    await imagesApi.update('9', { isFavorite: true })
+    await imagesApi.remove('9')
+
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+        'http://localhost:3000/images?tripId=7&tripStopId=12&page=2',
+        'http://localhost:3000/images',
+        'http://localhost:3000/images/9',
+        'http://localhost:3000/images/9',
+    ])
+    expect(fetch.mock.calls.map(([, options]) => options.method)).toEqual([
+        'GET',
+        'POST',
+        'PATCH',
+        'DELETE',
+    ])
+})
+
+test('image upload rejects files larger than 10 MB before calling the backend', async () => {
+    await expect(
+        uploadsApi.uploadImage(
+            {
+                name: 'large-photo.jpg',
+                type: 'image/jpeg',
+                size: (10 * 1024 * 1024) + 1,
+            },
+            'avatar',
+        ),
+    ).rejects.toMatchObject({
+        code: 'IMAGE_TOO_LARGE',
+        message: 'Ảnh không được vượt quá 10 MB',
+        status: 422,
+    })
+    expect(fetch).not.toHaveBeenCalled()
+    expect(axios.request).not.toHaveBeenCalled()
 })
 
 test('API errors expose backend code, message, details and status', async () => {
@@ -237,6 +358,12 @@ describe('API surface', () => {
             ].sort(),
         )
         expect(Object.keys(tripsApi).sort()).toEqual(
+            ['create', 'getById', 'list', 'remove', 'update'].sort(),
+        )
+        expect(Object.keys(uploadsApi).sort()).toEqual(
+            ['createPresignedUpload', 'uploadImage'].sort(),
+        )
+        expect(Object.keys(imagesApi).sort()).toEqual(
             ['create', 'getById', 'list', 'remove', 'update'].sort(),
         )
         expect(Object.keys(provincesApi).sort()).toEqual(

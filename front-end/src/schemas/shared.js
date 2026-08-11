@@ -31,6 +31,23 @@ export const nullableUrlSchema = z.preprocess(
   z.string().trim().url('URL không hợp lệ').max(2048).nullable(),
 )
 
+const imageObjectKeyPattern =
+  /^users\/[^/]+\/(?:avatar|trip-cover|images)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp|avif)$/i
+
+export const nullableImageObjectKeySchema = (purpose) =>
+  z.preprocess(
+    blankToNull,
+    z
+      .string()
+      .trim()
+      .regex(imageObjectKeyPattern, 'Khóa ảnh không hợp lệ')
+      .refine(
+        (value) => value.split('/')[2] === purpose,
+        `Khóa ảnh phải thuộc nhóm ${purpose}`,
+      )
+      .nullable(),
+  ).default(null)
+
 export const nullableTextSchema = (maximumLength, message) =>
   z.preprocess(
     blankToNull,

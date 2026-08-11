@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 
@@ -10,6 +10,9 @@ import { ROUTE_NAME } from '@/constants/routes.js'
 import { useFormValidation } from '@/composables/index.js'
 import { tripSchema } from '@/schemas/index.js'
 import { slugify } from '@/utils/string.js'
+import { UPLOAD_PURPOSE } from '@/constants/app.js'
+import UploadProgress from '@/components/UploadProgress.vue'
+import { useImageUpload } from '@/composables/useImageUpload.js'
 
 const props = defineProps({ id: { type: String, default: null } })
 const route = useRoute()
@@ -18,12 +21,25 @@ const tripsStore = useTripsStore()
 const { loading, error } = storeToRefs(tripsStore)
 const isEdit = computed(() => route.meta.mode === EDITOR_MODE.EDIT)
 const slugEdited = ref(false)
+const selectedCoverFile = ref(null)
+const coverPreviewUrl = ref(null)
+const {
+    status: uploadStatus,
+    progress: uploadProgress,
+    error: uploadError,
+    fileName: uploadFileName,
+    isProcessing: uploading,
+    reset: resetUpload,
+    upload,
+    complete: completeUpload,
+    fail: failUpload,
+} = useImageUpload()
 const { validate, errorFor } = useFormValidation(tripSchema)
 const form = reactive({
     title: '',
     slug: '',
     description: '',
-    thumbnailUrl: '',
+    thumbnailObjectKey: null,
     status: TRIP_STATUS.DRAFT,
     startDate: '',
     endDate: '',
@@ -44,24 +60,61 @@ onMounted(async () => {
         title: trip.title,
         slug: trip.slug,
         description: trip.description || '',
-        thumbnailUrl: trip.thumbnailUrl || '',
+        thumbnailObjectKey: trip.thumbnailObjectKey || null,
         status: trip.status,
         startDate: trip.startDate || '',
         endDate: trip.endDate || '',
         isPublic: trip.isPublic,
     })
+    coverPreviewUrl.value = trip.thumbnailUrl || null
     slugEdited.value = true
 })
 
+function releaseLocalPreview() {
+    if (coverPreviewUrl.value?.startsWith('blob:')) {
+        URL.revokeObjectURL(coverPreviewUrl.value)
+    }
+}
+
+function selectCover(event) {
+    const file = event.target.files?.[0] || null
+    if (!file) return
+
+    releaseLocalPreview()
+    selectedCoverFile.value = file
+    coverPreviewUrl.value = URL.createObjectURL(file)
+    resetUpload()
+}
+
 async function submit() {
-    const payload = validate(form)
+    let payload = validate(form)
     if (!payload) return
 
-    const trip = isEdit.value
-        ? await tripsStore.updateTrip(props.id, payload)
-        : await tripsStore.createTrip(payload)
-    await router.replace({ name: ROUTE_NAME.TRIP_DETAIL, params: { id: trip.id } })
+    try {
+        if (selectedCoverFile.value) {
+            const image = await upload(
+                selectedCoverFile.value,
+                UPLOAD_PURPOSE.TRIP_COVER,
+            )
+            form.thumbnailObjectKey = image.objectKey
+            selectedCoverFile.value = null
+            payload = {
+                ...payload,
+                thumbnailObjectKey: image.objectKey,
+            }
+        }
+
+        const trip = isEdit.value
+            ? await tripsStore.updateTrip(props.id, payload)
+            : await tripsStore.createTrip(payload)
+        if (uploadStatus.value !== 'idle') completeUpload()
+        await router.replace({ name: ROUTE_NAME.TRIP_DETAIL, params: { id: trip.id } })
+    } catch (requestError) {
+        if (uploadStatus.value !== 'idle') failUpload(requestError)
+    }
 }
+
+onBeforeUnmount(releaseLocalPreview)
 </script>
 
 <template>
@@ -97,10 +150,19 @@ async function submit() {
                 <span v-if="errorFor('description')" class="field-error">{{ errorFor('description') }}</span>
             </label>
             <label>
-                Ảnh bìa (URL)
-                <input v-model.trim="form.thumbnailUrl" type="url" placeholder="https://..." />
-                <span v-if="errorFor('thumbnailUrl')" class="field-error">{{ errorFor('thumbnailUrl') }}</span>
+                Ảnh bìa
+                <div v-if="coverPreviewUrl" class="image-upload-preview image-upload-preview-cover">
+                    <img :src="coverPreviewUrl" alt="Xem trước ảnh bìa" />
+                </div>
+                <input type="file" accept="image/jpeg,image/png,image/webp,image/avif" :disabled="uploading" @change="selectCover" />
+                <small>JPEG, PNG, WebP hoặc AVIF, tối đa 10 MB. Ảnh sẽ được tải trực tiếp lên S3 khi lưu chuyến đi.</small>
+                <span v-if="errorFor('thumbnailObjectKey')" class="field-error">{{ errorFor('thumbnailObjectKey') }}</span>
             </label>
+            <UploadProgress
+                :status="uploadStatus"
+                :progress="uploadProgress"
+                :file-name="uploadFileName"
+            />
 
             <div class="form-section-title"><span>02</span><h2>Thời gian &amp; trạng thái</h2></div>
             <div class="form-grid">
@@ -126,9 +188,9 @@ async function submit() {
                 <input v-model="form.isPublic" type="checkbox" />
                 <span><strong>Chia sẻ công khai</strong><small>Cho phép hành trình này được hiển thị công khai.</small></span>
             </label>
-            <p v-if="error" class="form-error">{{ error.message }}</p>
-            <button class="button button-primary button-wide" :disabled="loading" type="submit">
-                {{ loading ? 'Đang đóng dấu...' : isEdit ? 'Lưu thay đổi' : 'Tạo hành trình' }}
+            <p v-if="uploadError || error" class="form-error">{{ (uploadError || error).message }}</p>
+            <button class="button button-primary button-wide" :disabled="loading || uploading" type="submit">
+                {{ loading || uploading ? 'Đang đóng dấu...' : isEdit ? 'Lưu thay đổi' : 'Tạo hành trình' }}
             </button>
         </form>
     </main>

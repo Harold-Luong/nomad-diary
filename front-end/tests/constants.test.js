@@ -41,6 +41,7 @@ describe('shared constants', () => {
   test('route, storage, auth and pagination values remain stable', () => {
     expect(ROUTE_NAME.TRIP_DETAIL).toBe('trip-detail')
     expect(ROUTE_PATH.TRIP_DETAIL).toBe('/trips/:id')
+    expect(ROUTE_PATH.TRIP_IMAGES).toBe('/trips/:id/images')
     expect(STORAGE_KEY.AUTH_SESSION).toBe('nomad-diary.auth-session')
     expect(AUTH_SCHEME.BEARER).toBe('Bearer')
     expect(PAGINATION.DEFAULT_PAGE_SIZE).toBe(20)

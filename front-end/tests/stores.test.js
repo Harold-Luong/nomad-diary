@@ -2,6 +2,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, expect, test, vi } from 'vitest'
 
 import { useAuthStore } from '@/stores/auth.js'
+import { useImagesStore } from '@/stores/images.js'
 import { useProvincesStore } from '@/stores/provinces.js'
 import { useTripStopsStore } from '@/stores/trip-stops.js'
 import { useTripsStore } from '@/stores/trips.js'
@@ -113,6 +114,7 @@ test('clearing auth session also clears private domain state', () => {
     const tripsStore = useTripsStore()
     const stopsStore = useTripStopsStore()
     const provincesStore = useProvincesStore()
+    const imagesStore = useImagesStore()
 
     authStore.applySession({
         user: { id: '2', username: 'nomad' },
@@ -122,12 +124,14 @@ test('clearing auth session also clears private domain state', () => {
     tripsStore.items = [{ id: '7' }]
     stopsStore.byTripId = { 7: [{ id: '1' }] }
     provincesStore.items = [{ id: '68' }]
+    imagesStore.items = [{ id: '9', tripId: '7' }]
 
     authStore.clearSession()
 
     expect(tripsStore.items).toEqual([])
     expect(stopsStore.byTripId).toEqual({})
     expect(provincesStore.items).toEqual([])
+    expect(imagesStore.items).toEqual([])
     expect(authStore.isAuthenticated).toBe(false)
     expect(getAccessToken()).toBe(null)
 })

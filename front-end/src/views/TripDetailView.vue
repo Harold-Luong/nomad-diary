@@ -163,6 +163,7 @@ onMounted(async () => {
                     <p class="page-intro">{{ trip.description || 'Chưa có lời mở đầu cho hành trình này.' }}</p>
                     <div class="actions">
                         <RouterLink class="button button-primary" :to="{ name: ROUTE_NAME.TRIP_EDIT, params: { id: trip.id } }">Chỉnh sửa sổ</RouterLink>
+                        <RouterLink class="button button-secondary" :to="{ name: ROUTE_NAME.TRIP_IMAGES, params: { id: trip.id } }">Quản lý ảnh</RouterLink>
                         <button class="button button-danger-ghost" type="button" @click="removeTrip">Xóa chuyến đi</button>
                     </div>
                 </div>
@@ -270,6 +271,7 @@ onMounted(async () => {
                             <p class="stop-note">{{ stop.note || 'Chưa có ghi chú dọc đường.' }}</p>
                             <div class="stop-actions">
                                 <RouterLink class="text-button" :to="{ name: ROUTE_NAME.TRIP_STOP_REVIEW, params: { tripStopId: stop.id } }">★ Đánh giá</RouterLink>
+                                <RouterLink class="text-button" :to="{ name: ROUTE_NAME.TRIP_IMAGES, params: { id: trip.id }, query: { tripStopId: stop.id } }">▧ Ảnh của trạm</RouterLink>
                                 <button class="text-button" type="button" @click="startEditing(stop)">Sửa trạm</button>
                                 <button class="text-button danger-text" type="button" @click="removeStop(stop)">Xóa</button>
                             </div>

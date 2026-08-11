@@ -12,7 +12,6 @@ Frontend Vue 3 được khởi tạo bằng Vite và kết nối tới Nomad Dia
 ```powershell
 cd "D:\Nomad Diary\nomad-diary\front-end"
 npm.cmd install
-Copy-Item .env.example .env
 ```
 
 ## Chạy development
@@ -33,25 +32,28 @@ npm.cmd run dev
 
 Truy cập `http://127.0.0.1:5173`.
 
-Trong development, Vite proxy request `/api/*` tới backend local và bỏ tiền tố
-`/api` trước khi chuyển tiếp. Ví dụ `/api/auth/login` được gửi tới
-`http://localhost:3000/auth/login`, đúng với route thực tế của backend.
+Trong development, frontend gọi trực tiếp backend tại `http://localhost:3000`.
+Ví dụ endpoint đăng nhập là `http://localhost:3000/auth/login`; backend không dùng
+tiền tố `/api`.
 
 ## Environment variables
 
+Frontend dùng file môi trường theo mode chuẩn của Vite:
+
+- `development` đọc `.env.development` để gọi backend local. Test cũng chạy
+  bằng mode này.
+- `production` đọc `.env` để gọi backend đã deploy.
+
 ```env
-VITE_API_BASE_URL=/api
-VITE_API_PROXY_TARGET=http://localhost:3000
+VITE_API_BASE_URL=http://localhost:3000
 VITE_SWAGGER_URL=http://localhost:3000/api-docs
 ```
 
 - `VITE_API_BASE_URL`: base URL được API client sử dụng.
-- `VITE_API_PROXY_TARGET`: backend nhận request qua Vite development server.
 - `VITE_SWAGGER_URL`: đường dẫn Swagger hiển thị trên trang khởi động.
 
-File `.env.production` đã cấu hình API deploy tại
-`https://api.nomad-diary.site`. Có thể ghi đè các giá trị này bằng biến môi
-trường trong hệ thống build/deploy.
+Production mặc định gọi `https://api.nomad-diary.site`. Có thể ghi đè giá trị
+này bằng `VITE_API_BASE_URL` trong hệ thống build/deploy.
 
 Biến bắt đầu bằng `VITE_` được đưa vào frontend bundle, vì vậy không đặt mật
 khẩu, JWT secret hoặc thông tin bí mật trong các biến này.
@@ -65,10 +67,20 @@ chia theo module trong `src/api/`:
 | --- | --- |
 | `api/auth.js` | Register, login, refresh, logout, profile và account |
 | `api/health.js` | Liveness và database readiness |
+| `api/images.js` | List, detail, create, update và delete ảnh hành trình |
 | `api/provinces.js` | List, visited list, detail và places theo tỉnh |
 | `api/trips.js` | List, detail, create, update và delete trip |
 | `api/trip-stops.js` | List, create, update, delete và reorder stop |
 | `api/reviews.js` | Get, upsert và delete review |
+
+Upload ảnh được xử lý trong `api/uploads.js`: xin presigned URL và PUT file trực tiếp
+lên S3 bằng Axios để nhận tiến độ tải theo phần trăm. Form hồ sơ và form chuyến đi dùng file picker
+cho avatar/ảnh bìa. Database nhận `avatarObjectKey` hoặc `thumbnailObjectKey`;
+presigned URL tạm thời không được lưu.
+
+Màn quản lý ảnh hành trình đọc EXIF riêng cho từng file bằng `exifr`: tự lấy thời
+gian chụp, GPS và kích thước. Chỉ ảnh không có ngày chụp mới yêu cầu người dùng
+chọn ngày thủ công; GPS có thể được bỏ trước khi lưu metadata qua `POST /images`.
 
 Ví dụ gọi trực tiếp API module:
 
