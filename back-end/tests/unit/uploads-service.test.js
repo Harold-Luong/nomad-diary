@@ -4,15 +4,11 @@ import test from "node:test";
 import { S3Client } from "@aws-sdk/client-s3";
 
 import { loadEnvironment } from "../../src/config/load-environment.js";
+import { PRESIGNED_IMAGE_EXPIRES_IN_SECONDS, PRESIGNED_UPLOAD_EXPIRES_IN_SECONDS } from "../../src/shared/constants/image.js";
 
 loadEnvironment("development");
 
-const {
-    createPresignedImageUrl,
-    createPresignedUpload,
-    PRESIGNED_IMAGE_EXPIRES_IN_SECONDS,
-    PRESIGNED_UPLOAD_EXPIRES_IN_SECONDS,
-} = await import("../../src/modules/uploads/uploads.service.js");
+const { createPresignedImageUrl, createPresignedUpload } = await import("../../src/modules/uploads/uploads.service.js");
 
 const client = new S3Client({
     region: "ap-southeast-1",
