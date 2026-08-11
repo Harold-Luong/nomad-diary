@@ -32,7 +32,7 @@ Script schema tự mở transaction, đặt `search_path` thành `nomad_diary, p
 psql -v ON_ERROR_STOP=1 -U <user> -d <database> -f database/nomad-diary-seed.sql
 ```
 
-> **Cảnh báo:** seed chạy `TRUNCATE ... RESTART IDENTITY CASCADE` trên toàn bộ 11 bảng trước khi chèn dữ liệu. Chỉ dùng cho development/test; không dùng trên database có dữ liệu cần giữ lại. Hash mật khẩu và URL trong seed đều là dữ liệu mẫu.
+> **Cảnh báo:** seed chạy `TRUNCATE ... RESTART IDENTITY CASCADE` trên toàn bộ 11 bảng trước khi chèn dữ liệu. Chỉ dùng cho development/test; không dùng trên database có dữ liệu cần giữ lại. Hash mật khẩu và S3 object key trong seed đều là dữ liệu mẫu.
 
 ## Mô hình dữ liệu
 
@@ -81,6 +81,25 @@ ERD kèm danh sách cột đầy đủ: [nomad-diary-er.mmd](nomad-diary-er.mmd)
 - Tọa độ, ngày đi/về, kích thước ảnh và thứ tự ảnh đều có `CHECK` constraint. `images.ai_tags` dùng `jsonb` và có GIN index để phục vụ truy vấn tag AI.
 - Trigger `set_updated_at()` tự cập nhật `updated_at` cho tám bảng thực thể chính.
 
+### Lưu trữ ảnh trên S3
+
+Database chỉ lưu **S3 object key**, không lưu URL S3 hoặc presigned URL:
+
+| Bảng | Cột | Mục đích |
+| --- | --- | --- |
+| `users` | `avatar_key` | Key ảnh đại diện của user. |
+| `trips` | `thumbnail_key` | Key ảnh bìa của chuyến đi. |
+| `images` | `image_key` | Key ảnh gốc; bắt buộc. |
+| `images` | `thumbnail_key` | Key ảnh thumbnail; có thể `NULL`. |
+
+Key do API upload tạo theo cấu trúc:
+
+```text
+users/{userId}/{purpose}/{uuid}.{extension}
+```
+
+Trong đó `purpose` là `avatar`, `trip-cover` hoặc `image`. Ứng dụng dùng bucket cấu hình riêng kết hợp với key để tạo presigned URL khi cần upload hoặc đọc ảnh. Không lưu presigned URL vì URL này có thời hạn ngắn.
+
 ### Giá trị trạng thái
 
 | `trips.status` | Ý nghĩa     |
@@ -108,6 +127,8 @@ ERD kèm danh sách cột đầy đủ: [nomad-diary-er.mmd](nomad-diary-er.mmd)
 ## Dữ liệu mẫu
 
 Seed hiện có một người dùng, 0 auth session, 6 chuyến đi, 10 tỉnh/thành phố, 24 địa điểm, 24 lần ghé, 21 review, 10 tag và 64 ảnh. Auth session không được seed vì được tạo bởi luồng đăng nhập/refresh token lúc chạy ứng dụng. Dữ liệu minh hoạ các trường hợp ghé lại địa điểm qua nhiều chuyến, ghé cùng một nơi nhiều lần trong một chuyến, ảnh cấp trip/stop và các trạng thái đánh giá khác nhau.
+
+Các giá trị `avatar_key`, `thumbnail_key` và `image_key` trong seed là key mẫu theo đúng cấu trúc của upload API. Chạy seed chỉ ghi key vào PostgreSQL, **không upload object lên S3**. Muốn mở được ảnh seed, bucket phải có object với key trùng khớp; nếu không S3 sẽ trả `NoSuchKey`.
 
 ## Phạm vi hiện tại
 

@@ -158,6 +158,17 @@ Examples:
 - A trip cover image can belong only to the trip.
 - A photo taken at Hồ Xuân Hương belongs to the corresponding trip stop.
 
+The database stores S3 object keys, not S3 URLs or presigned URLs:
+
+```text
+users.avatar_key
+trips.thumbnail_key
+images.image_key
+images.thumbnail_key
+```
+
+Upload-generated keys follow `users/{userId}/{purpose}/{uuid}.{extension}`. The configured bucket and an object key are combined by the backend when it creates a short-lived presigned URL.
+
 Images can be filtered by:
 
 - Trip
@@ -304,6 +315,9 @@ Rules:
 - Do not duplicate `place_id` or `province_id` in the images table.
 - Place and province are derived through joins.
 - Only one active cover image is allowed per trip.
+- Store S3 object keys in `avatar_key`, `thumbnail_key`, and `image_key`; never persist a presigned URL.
+- `images.image_key` is required; thumbnail keys may be null.
+- Object keys must remain scoped to the owning user and follow the upload API key structure.
 
 ### Tags
 
@@ -615,6 +629,8 @@ TRUNCATE ... RESTART IDENTITY CASCADE;
 ```
 
 The seed file deletes existing data in the related tables before inserting dummy data.
+
+Seeded image references are S3 object keys only. Running the SQL seed does not upload image objects to S3. A seeded key is readable only when the configured bucket already contains a matching object; otherwise S3 returns `NoSuchKey`.
 
 ---
 
