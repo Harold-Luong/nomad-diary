@@ -166,6 +166,8 @@ psql \
   --file=/home/ubuntu/nomad-diary/database/nomad-diary-seed.sql
 ```
 
+Seed chỉ ghi các S3 object key mẫu vào `avatar_key`, `thumbnail_key` và `image_key`; lệnh này không upload ảnh lên S3. Muốn đọc được ảnh seed qua presigned URL, bucket ảnh phải chứa object đúng key trong seed. Nếu object chưa tồn tại, S3 sẽ trả `NoSuchKey`.
+
 ---
 
 # 9. Kiểm tra các bảng
