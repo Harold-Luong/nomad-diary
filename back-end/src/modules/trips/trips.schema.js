@@ -7,6 +7,7 @@ import {
 } from "../../shared/constants/domain.js";
 import { PAGINATION } from "../../shared/pagination/pagination.js";
 import { positiveIntegerIdSchema } from "../../shared/validation/schemas.js";
+import { tripCoverObjectKeySchema } from "../uploads/uploads.schema.js";
 
 function isCalendarDate(value) {
     const parsed = new Date(`${value}T00:00:00.000Z`);
@@ -33,7 +34,7 @@ const tripFields = {
         .max(255)
         .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Must be a URL-safe slug"),
     description: z.string().max(20_000).nullable().optional(),
-    thumbnailUrl: z.string().url().max(2_000).nullable().optional(),
+    thumbnailObjectKey: tripCoverObjectKeySchema.nullable().optional(),
     status: z.number().int().refine((value) => TRIP_STATUS_VALUES.includes(value), {
         message: "Must be one of 0, 1, 2, 3, or 4",
     }),
@@ -62,7 +63,7 @@ export const createTripSchema = z
     .object({
         ...tripFields,
         description: tripFields.description.default(null),
-        thumbnailUrl: tripFields.thumbnailUrl.default(null),
+        thumbnailObjectKey: tripFields.thumbnailObjectKey.default(null),
         status: tripFields.status.default(TRIP_STATUS.DRAFT),
         startDate: nullableDate.default(null),
         endDate: nullableDate.default(null),
@@ -76,7 +77,7 @@ export const updateTripSchema = z
         title: tripFields.title.optional(),
         slug: tripFields.slug.optional(),
         description: tripFields.description,
-        thumbnailUrl: tripFields.thumbnailUrl,
+        thumbnailObjectKey: tripFields.thumbnailObjectKey,
         status: tripFields.status.optional(),
         startDate: nullableDate,
         endDate: nullableDate,

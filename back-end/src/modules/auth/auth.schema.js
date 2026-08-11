@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { avatarObjectKeySchema } from "../uploads/uploads.schema.js";
+
 const passwordSchema = z
     .string()
     .min(8, "Password must contain at least 8 characters")
@@ -25,7 +27,6 @@ const emailSchema = z
     .max(255, "Email must contain at most 255 characters");
 
 const optionalDisplayNameSchema = z.string().trim().min(1).max(255).nullable();
-const optionalAvatarUrlSchema = z.string().trim().url("Avatar URL must be valid").max(2048).nullable();
 const optionalBioSchema = z.string().trim().max(5000).nullable();
 
 export const registerSchema = z
@@ -77,7 +78,7 @@ export const refreshTokenSchema = z
 export const updateProfileSchema = z
     .object({
         displayName: optionalDisplayNameSchema.optional(),
-        avatarUrl: optionalAvatarUrlSchema.optional(),
+        avatarObjectKey: avatarObjectKeySchema.nullable().optional(),
         bio: optionalBioSchema.optional(),
     })
     .strict()

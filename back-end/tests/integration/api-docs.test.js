@@ -46,8 +46,11 @@ test("Swagger exposes an OpenAPI document", async () => {
     assert.equal(document.servers[0].url, "/");
     assert.ok(document.paths["/auth/login"]);
     assert.ok(document.paths["/trips"]);
+    assert.ok(document.paths["/images"]);
+    assert.ok(document.paths["/images/{id}"]);
     assert.ok(document.paths["/uploads/presigned-url"]);
-    assert.ok(document.paths["/uploads/presigned-url"].get);
+    assert.equal(document.paths["/uploads/presigned-url"].get, undefined);
+    assert.ok(document.paths["/uploads/presigned-url"].post);
     assert.ok(document.paths["/provinces"]);
     assert.ok(document.paths["/provinces/visited"]);
     assert.ok(document.paths["/provinces/{id}"]);
@@ -57,17 +60,16 @@ test("Swagger exposes an OpenAPI document", async () => {
         ["identifier", "password"],
     );
     assert.equal(document.components.schemas.LoginInput.properties.email, undefined);
-    assert.ok(document.components.schemas.TripInput.properties.thumbnailUrl);
+    assert.equal(document.components.schemas.ProfileInput.properties.avatarUrl, undefined);
+    assert.ok(document.components.schemas.ProfileInput.properties.avatarObjectKey);
+    assert.equal(document.components.schemas.TripInput.properties.thumbnailUrl, undefined);
+    assert.ok(document.components.schemas.TripInput.properties.thumbnailObjectKey);
+    assert.ok(document.components.schemas.ImageInput);
     assert.deepEqual(
         document.components.schemas.PresignedUploadInput.required,
         ["fileName", "contentType", "fileSize"],
     );
-    assert.ok(document.components.schemas.PresignedImage);
-    assert.ok(
-        document.paths["/uploads/presigned-url"].get.parameters.some(
-            (parameter) => parameter.name === "objectKey" && parameter.required,
-        ),
-    );
+    assert.equal(document.components.schemas.PresignedImage, undefined);
     assert.ok(
         document.paths["/trips"].get.parameters.some(
             (parameter) => parameter.name === "sort",

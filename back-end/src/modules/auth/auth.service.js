@@ -18,6 +18,10 @@ import {
     ValidationError,
 } from "../../shared/errors/app-error.js";
 import * as authRepository from "./auth.repository.js";
+import {
+    isOwnedImageObjectKey,
+    resolveStoredImageReference,
+} from "../uploads/uploads.service.js";
 
 const PASSWORD_SALT_ROUNDS = 12;
 const DUMMY_PASSWORD_HASH =
@@ -39,13 +43,16 @@ function serializeDate(value) {
     return value ?? null;
 }
 
-function toPublicUser(user) {
+async function toPublicUser(user) {
+    const avatar = await resolveStoredImageReference(user.id, user.avatar_key);
+
     return {
         id: String(user.id),
         username: user.username,
         email: user.email,
         displayName: user.display_name ?? null,
-        avatarUrl: user.avatar_url ?? null,
+        avatarUrl: avatar.imageUrl,
+        avatarObjectKey: avatar.objectKey,
         bio: user.bio ?? null,
         createdAt: serializeDate(user.created_at),
         updatedAt: serializeDate(user.updated_at),
@@ -181,7 +188,7 @@ async function issueSessionTokens(user, requestInfo, executor) {
     );
 
     return {
-        user: toPublicUser(user),
+        user: await toPublicUser(user),
         accessToken: signAccessToken(user.id, sessionId),
         refreshToken,
         tokenType: AUTH_SCHEME.BEARER,
@@ -305,6 +312,18 @@ export async function getCurrentUser(userId) {
 }
 
 export async function updateCurrentUser(userId, profile) {
+    if (Object.hasOwn(profile, "avatarObjectKey")) {
+        if (
+            profile.avatarObjectKey !== null &&
+            !isOwnedImageObjectKey(userId, profile.avatarObjectKey, "avatar")
+        ) {
+            throw new ValidationError(
+                ...errorArgs(ERRORS.INVALID_IMAGE_OBJECT_KEY),
+            );
+        }
+
+    }
+
     const user = await authRepository.updateActiveUserProfile(userId, profile);
 
     if (!user) {

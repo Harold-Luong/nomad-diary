@@ -6,8 +6,10 @@ import { loadEnvironment } from "../../src/config/load-environment.js";
 loadEnvironment("development");
 
 const {
+    avatarObjectKeySchema,
     createPresignedUploadSchema,
-    getPresignedImageQuerySchema,
+    imageObjectKeySchema,
+    tripCoverObjectKeySchema,
 } = await import("../../src/modules/uploads/uploads.schema.js");
 
 test("presigned upload metadata accepts supported images and defaults purpose", () => {
@@ -21,7 +23,7 @@ test("presigned upload metadata accepts supported images and defaults purpose", 
             fileName: "da-lat.jpg",
             contentType: "image/jpeg",
             fileSize: 1024,
-            purpose: "image",
+            purpose: "images",
         },
     );
 });
@@ -45,17 +47,17 @@ test("presigned upload metadata rejects unsupported and oversized files", () => 
     );
 });
 
-test("presigned image query only accepts keys created by the upload API", () => {
-    const objectKey =
+test("image object keys preserve their upload purpose", () => {
+    const avatarKey =
+        "users/42/avatar/2bb95131-6918-4d70-813a-33f916edb781.webp";
+    const tripCoverKey =
         "users/42/trip-cover/2bb95131-6918-4d70-813a-33f916edb781.jpg";
+    const avifImageKey =
+        "users/42/images/2bb95131-6918-4d70-813a-33f916edb781.avif";
 
-    assert.deepEqual(getPresignedImageQuerySchema.parse({ objectKey }), {
-        objectKey,
-    });
-    assert.equal(
-        getPresignedImageQuerySchema.safeParse({
-            objectKey: "users/42/document/readme.pdf",
-        }).success,
-        false,
-    );
+    assert.equal(avatarObjectKeySchema.parse(avatarKey), avatarKey);
+    assert.equal(tripCoverObjectKeySchema.parse(tripCoverKey), tripCoverKey);
+    assert.equal(imageObjectKeySchema.parse(avifImageKey), avifImageKey);
+    assert.equal(avatarObjectKeySchema.safeParse(tripCoverKey).success, false);
+    assert.equal(tripCoverObjectKeySchema.safeParse(avatarKey).success, false);
 });

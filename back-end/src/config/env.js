@@ -47,6 +47,9 @@ export const env = Object.freeze({
         bucketName: process.env.AWS_S3_IMAGE_BUCKET,
         uploadMaxSizeMb: parsePort(process.env.UPLOAD_MAX_SIZE_MB, 10),
     },
+    cloudFront: {
+        imageBaseUrl: process.env.AWS_CLOUDFRONT_IMAGE_BASE_URL,
+    },
 });
 
 export const hasJwtConfiguration = () =>
