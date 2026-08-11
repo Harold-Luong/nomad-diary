@@ -1,23 +1,12 @@
 import { z } from "zod";
 
 import { env } from "../../config/env.js";
-
-export const IMAGE_CONTENT_TYPES = Object.freeze([
-    "image/jpeg",
-    "image/png",
-    "image/webp",
-]);
-
-export const UPLOAD_PURPOSES = Object.freeze([
-    "avatar",
-    "trip-cover",
-    "image",
-]);
+import { UPLOAD_PURPOSES } from "../../shared/constants/image.js";
 
 export const createPresignedUploadSchema = z
     .object({
         fileName: z.string().trim().min(1).max(255),
-        contentType: z.enum(IMAGE_CONTENT_TYPES),
+        contentType: z.enum(Object.keys(IMAGE_FILE_EXTENSIONS)),
         fileSize: z
             .number()
             .int()
