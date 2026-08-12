@@ -33,6 +33,13 @@ export const routes = [
         meta: { title: 'Tạo chuyến đi', requiresAuth: true, mode: EDITOR_MODE.CREATE },
     },
     {
+        path: ROUTE_PATH.TRIP_IMAGES,
+        name: ROUTE_NAME.TRIP_IMAGES,
+        component: () => import('@/views/ImagesManagerView.vue'),
+        props: true,
+        meta: { title: 'Quản lý ảnh', requiresAuth: true },
+    },
+    {
         path: ROUTE_PATH.TRIP_DETAIL,
         name: ROUTE_NAME.TRIP_DETAIL,
         component: () => import('@/views/TripDetailView.vue'),

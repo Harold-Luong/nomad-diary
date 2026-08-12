@@ -9,6 +9,7 @@ import {
 import { clearAccessToken, setAccessToken } from '@/services/api.js'
 import { runStoreRequest } from './request.js'
 import { useReviewsStore } from './reviews.js'
+import { useImagesStore } from './images.js'
 import { useProvincesStore } from './provinces.js'
 import { useTripsStore } from './trips.js'
 import { useTripStopsStore } from './trip-stops.js'
@@ -116,6 +117,7 @@ export const useAuthStore = defineStore('auth', {
             useTripsStore().clear()
             useTripStopsStore().clear()
             useReviewsStore().clear()
+            useImagesStore().clear()
             useProvincesStore().clear()
         },
 

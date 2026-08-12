@@ -1,6 +1,10 @@
 import { AUTH_SCHEME, CLIENT_ERROR_CODE } from '@/constants/app.js'
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
+const DEFAULT_API_BASE_URL = import.meta.env.PROD
+    ? 'https://api.nomad-diary.site'
+    : 'http://localhost:3000'
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL)
+    .replace(/\/$/, '')
 
 let defaultAccessToken = null
 let unauthorizedHandler = null

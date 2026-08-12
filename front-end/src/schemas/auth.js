@@ -2,8 +2,8 @@ import { z } from 'zod'
 
 import {
   emailSchema,
+  nullableImageObjectKeySchema,
   nullableTextSchema,
-  nullableUrlSchema,
   passwordInputSchema,
   passwordSchema,
 } from './shared.js'
@@ -30,7 +30,7 @@ export const registerSchema = z.object({
 
 export const profileSchema = z.object({
   displayName: nullableTextSchema(255, 'Tên hiển thị tối đa 255 ký tự'),
-  avatarUrl: nullableUrlSchema,
+  avatarObjectKey: nullableImageObjectKeySchema('avatar'),
   bio: nullableTextSchema(5000, 'Giới thiệu tối đa 5000 ký tự'),
 }).strict()
 

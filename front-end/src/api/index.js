@@ -1,6 +1,8 @@
 export { authApi } from './auth.js'
 export { healthApi } from './health.js'
+export { imagesApi } from './images.js'
 export { provincesApi } from './provinces.js'
 export { reviewsApi } from './reviews.js'
 export { tripStopsApi } from './trip-stops.js'
 export { tripsApi } from './trips.js'
+export { uploadsApi } from './uploads.js'

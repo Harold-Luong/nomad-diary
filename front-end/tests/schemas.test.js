@@ -49,7 +49,7 @@ describe('trip schemas', () => {
     title: 'Đà Lạt',
     slug: 'da-lat',
     description: '',
-    thumbnailUrl: '',
+    thumbnailObjectKey: null,
     status: 1,
     startDate: '2026-08-10',
     endDate: '2026-08-12',
@@ -59,7 +59,7 @@ describe('trip schemas', () => {
   test('turns optional empty form fields into null', () => {
     expect(tripSchema.parse(validTrip)).toMatchObject({
       description: null,
-      thumbnailUrl: null,
+      thumbnailObjectKey: null,
     })
   })
 
