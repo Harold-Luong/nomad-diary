@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { updateActiveUserProfile } from "../../src/modules/auth/auth.repository.js";
-import { create as createTrip } from "../../src/modules/trips/trips.repository.js";
+import { loadEnvironment } from "../../src/config/load-environment.js";
+
+await loadEnvironment("development");
+
+const { updateActiveUserProfile } = await import("../../src/modules/auth/auth.repository.js");
+const { create: createTrip } = await import("../../src/modules/trips/trips.repository.js");
 
 test("profile persistence writes avatar object keys to avatar_key", async () => {
     let captured;

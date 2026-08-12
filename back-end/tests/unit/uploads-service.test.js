@@ -3,10 +3,11 @@ import test from "node:test";
 
 import { S3Client } from "@aws-sdk/client-s3";
 
+import { AWS_REGION } from "../../src/config/constants.js";
 import { loadEnvironment } from "../../src/config/load-environment.js";
 import { PRESIGNED_UPLOAD_EXPIRES_IN_SECONDS } from "../../src/shared/constants/image.js";
 
-loadEnvironment("development");
+await loadEnvironment("development");
 
 const {
     createImageUrl,
@@ -15,7 +16,7 @@ const {
 } = await import("../../src/modules/uploads/uploads.service.js");
 
 const client = new S3Client({
-    region: "ap-southeast-1",
+    region: AWS_REGION,
     credentials: {
         accessKeyId: "test-access-key",
         secretAccessKey: "test-secret-key",
@@ -34,7 +35,7 @@ test("presigned S3 PUT URL expires after exactly five minutes", async () => {
         {
             client,
             configuration: {
-                region: "ap-southeast-1",
+                region: AWS_REGION,
                 bucketName: "nomad-diary-test",
             },
         },

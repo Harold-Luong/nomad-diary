@@ -1,10 +1,10 @@
 import { loadEnvironment } from "./config/load-environment.js";
 
-loadEnvironment();
+await loadEnvironment();
 
-const { assertRuntimeConfiguration, env } = await import("./config/env.js");
+const { env, assertRuntimeConfiguration } = await import("./config/env.js");
 
-assertRuntimeConfiguration();
+assertRuntimeConfiguration(env);
 
 const [{ default: app }, { closePool }] = await Promise.all([
     import("./app.js"),

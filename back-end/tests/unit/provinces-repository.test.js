@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
+import { loadEnvironment } from "../../src/config/load-environment.js";
+
+await loadEnvironment("development");
+
+const {
     listPlacesForUser,
     listVisitedForUser,
-} from "../../src/modules/provinces/provinces.repository.js";
+} = await import("../../src/modules/provinces/provinces.repository.js");
 
 test("visited province tracking is scoped to the authenticated user", async () => {
     let captured;
