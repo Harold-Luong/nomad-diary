@@ -35,7 +35,7 @@ trình trước khi Node.js khởi động để chọn file cấu hình:
 
 | `NODE_ENV` | File được đọc | Mục đích |
 | --- | --- | --- |
-| Không khai báo hoặc `development` | `.env.example` | Chạy local |
+| Không khai báo hoặc `development` | `.env.development` | Chạy local |
 | `production` | `.env` | Chạy production |
 
 Giá trị khác như `dev`, `prod`, `test` hoặc `staging` sẽ làm server dừng với lỗi
@@ -43,10 +43,10 @@ cấu hình rõ ràng. File được resolve từ thư mục `back-end`, nên k�
 thuộc terminal đang đứng ở thư mục nào. Biến đã được cung cấp từ OS, container
 hoặc PM2 luôn được ưu tiên hơn giá trị cùng tên trong file.
 
-Trước khi chạy production, tạo `.env` từ `.env.example`, đặt
+Trước khi chạy production, tạo `.env` từ `.env.development`, đặt
 `NODE_ENV=production` và thay thông tin PostgreSQL, CORS cùng hai JWT secret bằng
 giá trị thật. `.env` bị Git bỏ qua; không đưa secret production vào
-`.env.example`.
+`.env.development`.
 
 ### 1. Tạo database
 
@@ -806,7 +806,7 @@ back-end/
 │       ├── pagination/
 │       └── validation/
 ├── tests/
-├── .env.example
+├── .env.development
 ├── package.json
 └── README.md
 ```
@@ -870,11 +870,11 @@ npm.cmd run dev
 ### Cấu hình local hoặc production không được nhận
 
 Khi chạy local, không khai báo `NODE_ENV` hoặc đặt chính xác
-`NODE_ENV=development`; server sẽ đọc `.env.example`. Khi chạy production, tạo
+`NODE_ENV=development`; server sẽ đọc `.env.development`. Khi chạy production, tạo
 file `.env` và đặt `NODE_ENV=production` trước khi khởi động server:
 
 ```powershell
-Copy-Item .env.example .env
+Copy-Item .env.development .env
 $env:NODE_ENV = "production"
 npm.cmd start
 ```

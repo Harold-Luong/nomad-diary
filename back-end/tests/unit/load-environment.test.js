@@ -13,7 +13,7 @@ const backendRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 test("environment file selection supports development and production", () => {
     assert.equal(getEnvironmentFile("production"), ".env");
-    assert.equal(getEnvironmentFile("development"), ".env.example");
+    assert.equal(getEnvironmentFile("development"), ".env.development");
     assert.equal(getNodeEnvironment("development"), "development");
     assert.equal(getNodeEnvironment("production"), "production");
 });
@@ -21,7 +21,7 @@ test("environment file selection supports development and production", () => {
 test("environment file paths are resolved from the backend root", () => {
     assert.equal(
         getEnvironmentPath("development"),
-        path.join(backendRoot, ".env.example"),
+        path.join(backendRoot, ".env.development"),
     );
     assert.equal(getEnvironmentPath("production"), path.join(backendRoot, ".env"));
 });
@@ -32,7 +32,7 @@ test("missing NODE_ENV defaults to development", () => {
 
     try {
         assert.equal(getNodeEnvironment(), "development");
-        assert.equal(getEnvironmentFile(), ".env.example");
+        assert.equal(getEnvironmentFile(), ".env.development");
     } finally {
         if (originalNodeEnvironment === undefined) {
             delete process.env.NODE_ENV;

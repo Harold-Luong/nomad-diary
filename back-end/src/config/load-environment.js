@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 import { fileURLToPath } from "node:url";
 
 const ENVIRONMENT_FILES = Object.freeze({
-    development: ".env.example",
+    development: ".env.development",
     production: ".env",
 });
 
