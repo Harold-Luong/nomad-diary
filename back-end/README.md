@@ -36,17 +36,20 @@ trình trước khi Node.js khởi động để chọn file cấu hình:
 | `NODE_ENV` | File được đọc | Mục đích |
 | --- | --- | --- |
 | Không khai báo hoặc `development` | `.env.development` | Chạy local |
-| `production` | `.env` | Chạy production |
+| `production` | `.env`, sau đó AWS Secrets Manager | Chạy production |
 
-Giá trị khác như `dev`, `prod`, `test` hoặc `staging` sẽ làm server dừng với lỗi
-cấu hình rõ ràng. File được resolve từ thư mục `back-end`, nên kết quả không phụ
+Chỉ giá trị chính xác `production` mới chọn cấu hình production. Mọi giá trị khác
+như không khai báo, `development`, `dev`, `test` hoặc `staging` đều chọn
+`.env.development`. File được resolve từ thư mục `back-end`, nên kết quả không phụ
 thuộc terminal đang đứng ở thư mục nào. Biến đã được cung cấp từ OS, container
-hoặc PM2 luôn được ưu tiên hơn giá trị cùng tên trong file.
+hoặc PM2 luôn được ưu tiên hơn giá trị cùng tên trong file. Riêng production,
+nhóm biến bí mật được tải từ AWS Secrets Manager sau khi đọc `.env` và sẽ thay
+thế mọi giá trị cùng tên trong file hoặc process.
 
-Trước khi chạy production, tạo `.env` từ `.env.development`, đặt
-`NODE_ENV=production` và thay thông tin PostgreSQL, CORS cùng hai JWT secret bằng
-giá trị thật. `.env` bị Git bỏ qua; không đưa secret production vào
-`.env.development`.
+Trước khi chạy production, tạo `.env` chỉ chứa cấu hình bootstrap và cấu hình
+không bí mật, gồm `PORT`, các tùy chọn database pool/SSL và
+`UPLOAD_MAX_SIZE_MB`. Không lưu database credential, JWT secret, CORS, bucket
+hoặc CloudFront URL trong file này.
 
 ### 1. Tạo database
 
@@ -97,16 +100,37 @@ JWT_REFRESH_EXPIRES_IN=30d
 
 CORS_ORIGIN=http://localhost:5173,http://localhost:3000
 
-AWS_REGION=ap-southeast-1
 AWS_S3_IMAGE_BUCKET=nomad-diary-img
 AWS_CLOUDFRONT_IMAGE_BASE_URL=https://example.cloudfront.net
 UPLOAD_MAX_SIZE_MB=10
 ```
 
-`AWS_REGION` và `AWS_S3_IMAGE_BUCKET` là bắt buộc khi dùng upload. IAM
+`AWS_S3_IMAGE_BUCKET` là bắt buộc khi dùng upload. AWS region được cố định trong
+code là `ap-southeast-1`. IAM
 role/user chạy backend cần quyền `s3:PutObject` cho prefix `users/*` trong bucket.
 `AWS_CLOUDFRONT_IMAGE_BASE_URL` là domain CloudFront dùng để đọc ảnh. Giữ S3
 private và cấp `s3:GetObject` cho CloudFront thông qua Origin Access Control (OAC).
+
+Trong production, secret `ec2-db-env` tại `ap-southeast-1` phải là JSON object
+chứa đủ các key sau:
+
+```text
+DATABASE_HOST
+DATABASE_NAME
+DATABASE_PASSWORD
+DATABASE_USER
+JWT_ACCESS_SECRET
+JWT_REFRESH_SECRET
+JWT_ACCESS_EXPIRES_IN
+JWT_REFRESH_EXPIRES_IN
+CORS_ORIGIN
+AWS_CLOUDFRONT_IMAGE_BASE_URL
+AWS_S3_IMAGE_BUCKET
+```
+
+IAM role chạy backend cần quyền `secretsmanager:GetSecretValue` cho secret này.
+Server chỉ đưa các key trong danh sách trên vào môi trường và sẽ dừng trước khi
+lắng nghe nếu secret không đọc được, JSON sai hoặc thiếu giá trị.
 
 Tạo một secret ngẫu nhiên bằng Node.js:
 
@@ -904,18 +928,19 @@ npm.cmd run dev
 ### Cấu hình local hoặc production không được nhận
 
 Khi chạy local, không khai báo `NODE_ENV` hoặc đặt chính xác
-`NODE_ENV=development`; server sẽ đọc `.env.development`. Khi chạy production, tạo
-file `.env` và đặt `NODE_ENV=production` trước khi khởi động server:
+`NODE_ENV=development`; server sẽ đọc `.env.development`. Khi chạy production,
+tạo `.env` với cấu hình bootstrap/không bí mật, bảo đảm IAM role đọc được secret
+`ec2-db-env`, rồi đặt `NODE_ENV=production` trước khi khởi động server:
 
 ```powershell
-Copy-Item .env.development .env
 $env:NODE_ENV = "production"
 npm.cmd start
 ```
 
-Không dùng tên rút gọn `dev` hoặc `prod`. `NODE_ENV` trong file không thể tự chọn
-chính file đó; giá trị từ tiến trình khởi động mới là giá trị quyết định. Sau khi
-sửa cấu hình, phải khởi động lại server.
+Chỉ `NODE_ENV=production` mới đọc `.env` và Secrets Manager. Tên khác, kể cả
+`dev`, `prod`, `test` hoặc `staging`, đều dùng `.env.development`. `NODE_ENV`
+trong file không thể tự chọn chính file đó; giá trị từ tiến trình khởi động mới
+là giá trị quyết định. Sau khi sửa cấu hình, phải khởi động lại server.
 
 ### `CORS_ORIGIN_NOT_ALLOWED`
 

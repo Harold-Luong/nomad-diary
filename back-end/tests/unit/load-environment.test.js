@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
     getEnvironmentFile,
     getEnvironmentPath,
-    getNodeEnvironment,
+    getEnvironment,
 } from "../../src/config/load-environment.js";
 
 const backendRoot = fileURLToPath(new URL("../../", import.meta.url));
@@ -14,8 +14,10 @@ const backendRoot = fileURLToPath(new URL("../../", import.meta.url));
 test("environment file selection supports development and production", () => {
     assert.equal(getEnvironmentFile("production"), ".env");
     assert.equal(getEnvironmentFile("development"), ".env.development");
-    assert.equal(getNodeEnvironment("development"), "development");
-    assert.equal(getNodeEnvironment("production"), "production");
+    assert.equal(getEnvironment("development"), "development");
+    assert.equal(getEnvironment("production"), "production");
+    assert.equal(getEnvironment("staging"), "development");
+    assert.equal(getEnvironmentFile("test"), ".env.development");
 });
 
 test("environment file paths are resolved from the backend root", () => {
@@ -31,7 +33,7 @@ test("missing NODE_ENV defaults to development", () => {
     delete process.env.NODE_ENV;
 
     try {
-        assert.equal(getNodeEnvironment(), "development");
+        assert.equal(getEnvironment(), "development");
         assert.equal(getEnvironmentFile(), ".env.development");
     } finally {
         if (originalNodeEnvironment === undefined) {
@@ -42,9 +44,8 @@ test("missing NODE_ENV defaults to development", () => {
     }
 });
 
-test("unsupported NODE_ENV values fail fast", () => {
-    assert.throws(
-        () => getEnvironmentFile("staging"),
-        /Use "development" or "production"/,
-    );
+test("only production selects the production environment", () => {
+    for (const value of [undefined, "development", "dev", "prod", "test", "staging"]) {
+        assert.equal(getEnvironment(value), "development");
+    }
 });

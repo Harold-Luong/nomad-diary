@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 
 import { loadEnvironment } from "../../src/config/load-environment.js";
 
-loadEnvironment("development");
+await loadEnvironment("development");
 
 const { default: app } = await import("../../src/app.js");
 
