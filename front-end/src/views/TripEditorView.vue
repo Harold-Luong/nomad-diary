@@ -9,6 +9,7 @@ import { TRIP_STATUS, TRIP_STATUS_OPTIONS } from '@/constants/domain.js'
 import { ROUTE_NAME } from '@/constants/routes.js'
 import { useFormValidation } from '@/composables/index.js'
 import { tripSchema } from '@/schemas/index.js'
+import { toDateInputValue } from '@/utils/date.js'
 import { slugify } from '@/utils/string.js'
 import { UPLOAD_PURPOSE } from '@/constants/app.js'
 import UploadProgress from '@/components/UploadProgress.vue'
@@ -62,8 +63,8 @@ onMounted(async () => {
         description: trip.description || '',
         thumbnailObjectKey: trip.thumbnailObjectKey || null,
         status: trip.status,
-        startDate: trip.startDate || '',
-        endDate: trip.endDate || '',
+        startDate: toDateInputValue(trip.startDate),
+        endDate: toDateInputValue(trip.endDate),
         isPublic: trip.isPublic,
     })
     coverPreviewUrl.value = trip.thumbnailUrl || null

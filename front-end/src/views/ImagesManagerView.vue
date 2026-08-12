@@ -157,8 +157,8 @@ function clearCompleted() {
 }
 
 function toCapturedAt(value) {
-      return value ? new Date(value).toISOString() : null
-} 
+    return value ? new Date(value).toISOString() : null
+}
 
 async function uploadItem(item) {
     item.error = null
@@ -215,6 +215,7 @@ async function uploadAll() {
                 await uploadItem(item)
             }
         }
+        clearCompleted()
         await loadImages(filters.page)
     } finally {
         batchUploading.value = false
@@ -381,7 +382,7 @@ onBeforeUnmount(() => queue.value.forEach(releaseQueuePreview))
                                         <span>
                                             <strong>Lưu vị trí từ ảnh</strong>
                                             <small>{{ item.latitude.toFixed(5) }}, {{ item.longitude.toFixed(5)
-                                                }}</small>
+                                            }}</small>
                                         </span>
                                     </label>
                                     <p v-else><span>Vị trí</span><strong>Không có GPS trong ảnh</strong></p>
@@ -401,11 +402,7 @@ onBeforeUnmount(() => queue.value.forEach(releaseQueuePreview))
                 <div v-if="queue.length" class="image-upload-actions">
                     <button class="button button-primary" type="button" :disabled="!canUpload || batchUploading"
                         @click="uploadAll">
-                        {{ batchUploading ? 'Đang lưu từng khoảnh khắc...' : 'Tải và lưu tất cả' }}
-                    </button>
-                    <button class="button button-secondary" type="button" :disabled="batchUploading"
-                        @click="clearCompleted">
-                        Dọn ảnh đã hoàn tất
+                        {{ batchUploading ? 'Đang lưu từng khoảnh khắc...' : 'Lưu tất cả ảnh vào nhật ký' }}
                     </button>
                 </div>
             </section>
@@ -466,10 +463,11 @@ onBeforeUnmount(() => queue.value.forEach(releaseQueuePreview))
                         </button>
                         <div class="journey-image-copy">
                             <p class="image-location">⌖ {{ imageLocation(image) }}</p>
-                            <p class="image-description">{{ image.description || 'Chưa có chú thích cho khoảnh khắc này.' }}</p>
+                            <p class="image-description">
+                                {{ image.description || 'Chưa có chú thích cho khoảnh khắc này.' }}</p>
                             <small>{{ formatDateTime(image.capturedAt || image.createdAt) }} · {{
                                 formatFileSize(image.fileSize)
-                                }}</small>
+                            }}</small>
 
                             <form v-if="String(editingImageId) === String(image.id)" class="image-inline-editor"
                                 @submit.prevent="saveImage(image)">
