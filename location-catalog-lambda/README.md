@@ -381,6 +381,21 @@ PK
 SK
 ```
 
+Secondary indexes:
+
+```text
+GSI1
+├── GSI1PK
+└── GSI1SK
+
+GSI2
+├── GSI2PK
+└── GSI2SK
+```
+
+`GSI1` phục vụ danh sách Province và các access pattern cấp Province. `GSI2`
+phục vụ danh sách/search Place trong đúng một Ward đã chọn.
+
 Thiết kế theo access pattern, không thiết kế theo quan hệ như PostgreSQL.
 
 ---
@@ -393,8 +408,8 @@ Hệ thống phải hỗ trợ:
 1. List provinces
 2. Get province
 3. List wards by province
-4. List places by province
-5. Search places by name prefix within province
+4. List places by ward within province
+5. Search places by name prefix within ward
 6. Get place
 7. Create place
 8. Update place
@@ -512,18 +527,34 @@ AND begins_with(SK, "WARD#")
   "updatedAt": "2026-08-13T00:00:00.000Z",
 
   "GSI1PK": "PROVINCE#48#PLACES",
-  "GSI1SK": "NAME#cau-rong#01JABC123"
+  "GSI1SK": "NAME#cau-rong#01JABC123",
+
+  "GSI2PK": "PROVINCE#48#WARD#20242#PLACES",
+  "GSI2SK": "STATUS#ACTIVE#NAME#cau-rong#01JABC123"
 }
 ```
 
-List place:
+`GSI2` là access path bắt buộc cho UI chọn Ward rồi tải Place:
 
 ```text
-PK = PROVINCE#48
-AND begins_with(SK, "PLACE#")
+GSI2PK = PROVINCE#48#WARD#20242#PLACES
+AND begins_with(GSI2SK, "STATUS#ACTIVE#NAME#")
 ```
 
-Search theo prefix sử dụng GSI.
+Query này bảo đảm DynamoDB chỉ đọc Place thuộc đồng thời Province `48`, Ward
+`20242` và có trạng thái `ACTIVE`. Frontend không tải toàn bộ Place của Province
+rồi tự lọc theo Ward.
+
+Search theo prefix trong Ward cũng sử dụng `GSI2`:
+
+```text
+GSI2PK = PROVINCE#48#WARD#20242#PLACES
+AND begins_with(GSI2SK, "STATUS#ACTIVE#NAME#cau")
+```
+
+Khi Place đổi Ward, đổi tên hoặc chuyển sang `ARCHIVED`, Admin Lambda phải cập
+nhật đồng thời `GSI2PK` và `GSI2SK`. Place đã archive không còn khớp prefix
+`STATUS#ACTIVE#` của public query.
 
 Ví dụ:
 
@@ -604,27 +635,27 @@ GET /v1/provinces
 GET /v1/provinces/{provinceCode}
 
 GET /v1/provinces/{provinceCode}/wards
+GET /v1/provinces/{provinceCode}/wards/{wardCode}/places
 
-GET /v1/provinces/{provinceCode}/places
 GET /v1/provinces/{provinceCode}/places/{placeId}
 ```
 
 Search:
 
 ```http
-GET /v1/provinces/48/places?search=cau
+GET /v1/provinces/48/wards/20242/places?search=cau
 ```
 
 Filter:
 
 ```http
-GET /v1/provinces/48/places?featured=true
+GET /v1/provinces/48/wards/20242/places?featured=true
 ```
 
 Pagination:
 
 ```http
-GET /v1/provinces/48/places?limit=20&cursor=...
+GET /v1/provinces/48/wards/20242/places?limit=20&cursor=...
 ```
 
 ---
@@ -674,23 +705,38 @@ Create Trip
 GET /v1/provinces
 ```
 
-User chọn province:
+User chọn Province:
 
 ```text
 Province
 [ Đà Nẵng ▼ ]
        │
        │ provinceCode = 48
+       ▼
+GET /v1/provinces/48/wards
        │
-       ├────────────────────┐
-       ▼                    ▼
-GET /48/wards          GET /48/places
-       │                    │
-       ▼                    ▼
-Ward options           Place options
+       ▼
+Ward options
 ```
 
-Hai request có thể chạy song song.
+User chọn Ward:
+
+```text
+Ward
+[ Phường An Hải ▼ ]
+       │
+       │ provinceCode = 48
+       │ wardCode = 20242
+       ▼
+GET /v1/provinces/48/wards/20242/places
+       │
+       ▼
+Chỉ Place thuộc Ward 20242
+```
+
+Khi Province thay đổi, frontend phải xóa Ward và Place đang chọn. Khi Ward thay
+đổi, frontend phải xóa Place đang chọn rồi tải lại danh sách từ endpoint của Ward
+mới.
 
 ---
 
@@ -718,7 +764,7 @@ Frontend sử dụng debounce khoảng:
 sau đó mới gọi:
 
 ```http
-GET /v1/provinces/48/places?search=cau
+GET /v1/provinces/48/wards/20242/places?search=cau
 ```
 
 Nếu search mới bắt đầu trước khi request cũ hoàn thành, frontend nên hủy hoặc bỏ qua response cũ.
@@ -973,15 +1019,18 @@ provinceCode
 
 bắt buộc.
 
-`wardCode` là optional.
+`wardCode` bắt buộc với Place trong version đầu.
 
-Nếu có wardCode:
+Trước khi create hoặc update Place, backend phải xác minh:
 
 ```text
 ward.provinceCode === place.provinceCode
+ward.status === ACTIVE
 ```
 
-phải đúng.
+Public endpoint nhận cả `provinceCode` và `wardCode`; nếu Ward không tồn tại
+trong Province đó thì trả `404 WARD_NOT_FOUND`. Không fallback sang danh sách
+Place toàn Province.
 
 Latitude:
 
