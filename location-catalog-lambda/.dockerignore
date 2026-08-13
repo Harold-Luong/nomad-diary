@@ -1,4 +1,5 @@
 .git
+infra
 node_modules
 tests
 *.md

@@ -8,6 +8,11 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "dynamodb:migrate": "node infra/dynamodb/runners/migrate.js",
+    "dynamodb:verify": "node infra/dynamodb/runners/verify.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1109.0"
   }
 }
