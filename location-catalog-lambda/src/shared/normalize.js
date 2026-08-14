@@ -8,3 +8,7 @@ export function normalizeName(value) {
         .trim()
         .replace(/\s+/g, " ");
 }
+
+export function normalizeSearchKey(value) {
+    return normalizeName(value).replace(/\s+/g, "-");
+}

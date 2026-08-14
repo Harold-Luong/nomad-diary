@@ -1,1883 +1,471 @@
-# Vietnam Location Catalog API
+# Location Catalog Lambda
 
-Dịch vụ catalog địa lý dùng chung cung cấp dữ liệu **tỉnh/thành, phường/xã và địa điểm nổi bật tại Việt Nam**, được thiết kế theo kiến trúc serverless trên AWS với **API Gateway HTTP API, AWS Lambda và DynamoDB**.
+API tra cứu catalog địa lý Việt Nam chạy bằng AWS Lambda và đọc dữ liệu từ
+DynamoDB.
 
-> **Trạng thái:** Thiết kế kiến trúc. Chưa triển khai source code hoặc hạ tầng AWS.
+Module hiện tại chỉ triển khai một **Query Lambda read-only**. Lambda cung cấp
+danh sách tỉnh/thành, phường/xã, địa điểm theo phường và chi tiết địa điểm.
+Các nội dung từng có trong tài liệu thiết kế cũ như Admin Lambda, Province Sync
+Lambda, trình import/migration DynamoDB và test suite không còn nằm trong source
+code hiện tại.
 
----
+## Trạng thái hiện tại
 
-# 1. Mục tiêu
+Đã có:
 
-Vietnam Location Catalog API là một service độc lập cung cấp dữ liệu địa lý chuẩn hóa cho **Nomad Diary** và có khả năng được tái sử dụng bởi các ứng dụng khác trong tương lai.
+- Lambda handler tương thích event của API Gateway HTTP API.
+- Năm route public dùng phương thức `GET`.
+- Truy vấn DynamoDB bằng AWS SDK v3.
+- Tìm địa điểm theo prefix tên, lọc `featured` và phân trang bằng cursor.
+- Docker image dựa trên AWS Lambda Node.js 22.
+- Docker Compose để build và gọi Lambda Runtime Interface Emulator ở local.
 
-Service cung cấp:
+Chưa có trong module này:
 
-* Danh sách tỉnh/thành Việt Nam theo dữ liệu hành chính v2 sau sáp nhập 07/2025.
-* Danh sách phường/xã thuộc một tỉnh.
-* Danh sách địa điểm nổi bật thuộc một tỉnh.
-* Tìm địa điểm theo tên trong phạm vi một tỉnh.
-* Thông tin chi tiết của một địa điểm.
-* API quản trị để thêm, chỉnh sửa hoặc ẩn địa điểm.
-* Đồng bộ dữ liệu hành chính định kỳ.
+- Infrastructure as Code để tạo API Gateway, Lambda, IAM hoặc DynamoDB.
+- Script tạo bảng, tạo index, seed, import hay đồng bộ dữ liệu.
+- API tạo, sửa, archive hoặc xóa dữ liệu.
+- Authentication/authorization.
+- Cấu hình CORS và throttling.
+- Automated test và npm script `test`.
+- Tích hợp trực tiếp với `front-end` hoặc `back-end` của Nomad Diary.
 
-Service này là **shared catalog**, không sở hữu dữ liệu nghiệp vụ của Nomad Diary.
+Do đó bảng DynamoDB và dữ liệu phải tồn tại trước khi gọi các route catalog.
 
-Catalog **không lưu**:
-
-* Trip của user.
-* Trip stop.
-* Lịch sử ghé thăm.
-* Rating của user.
-* Ảnh.
-* Địa điểm cá nhân do user tự nhập.
-* Quan hệ giữa user và địa điểm.
-
-Các dữ liệu trên tiếp tục thuộc quyền sở hữu của Nomad Diary.
-
----
-
-# 2. Nguyên tắc kiến trúc
-
-Hệ thống được chia thành hai domain rõ ràng:
+## Luồng xử lý
 
 ```text
-LOCATION CATALOG
-──────────────────────────────
-Province
-Ward
-Place
-Administrative data
-
-        độc lập với
-
-NOMAD DIARY
-──────────────────────────────
-User
-Trip
-Trip Stop
-Image
-Review
-Visited Place
-User-created Place
+Client
+  |
+  v
+API Gateway HTTP API
+  |
+  v
+src/handlers/query.handler
+  |
+  v
+src/repositories/location-catalog.repository.js
+  |
+  v
+DynamoDB: LocationCatalog (ap-southeast-1)
 ```
 
-Location Catalog là nguồn dữ liệu tham khảo.
+`query.handler` chịu trách nhiệm nhận diện route, validate path/query, kiểm tra
+cursor và tạo HTTP response. Repository là lớp duy nhất tạo `GetCommand` và
+`QueryCommand`.
 
-Nomad Diary là hệ thống sở hữu dữ liệu hành trình của user.
+API Gateway, custom domain, CORS, throttling và quyền IAM là hạ tầng bên ngoài
+source code này.
 
-Một địa điểm bị đổi tên hoặc archive trong Catalog **không được làm thay đổi nhật ký lịch sử đã được lưu trong Nomad Diary**.
+## Công nghệ
 
----
+- Node.js 22 trở lên, ES modules.
+- AWS Lambda container image.
+- AWS SDK for JavaScript v3.
+- DynamoDB Document Client.
+- Docker và Docker Compose cho local container.
 
-# 3. Kiến trúc tổng thể
+## Cấu trúc thư mục
 
 ```text
-                         ┌───────────────────────────┐
-                         │ Province Open API v2      │
-                         └─────────────┬─────────────┘
-                                       │
-                                       │ scheduled sync
-                                       ▼
-                            ┌─────────────────────┐
-                            │ Province Sync       │
-                            │ Lambda              │
-                            └──────────┬──────────┘
-                                       │
-                                       ▼
-┌─────────────────┐          ┌─────────────────────┐
-│ Nomad Diary FE  │          │                     │
-│ Vue SPA         │─────────►│ API Gateway         │
-└────────┬────────┘ Public   │ HTTP API            │
-         │          GET      │                     │
-         │                   └─────┬────────┬──────┘
-         │                         │        │
-         │                         │        │ JWT + scope
-         │                  ┌──────▼───┐ ┌──▼──────────┐
-         │                  │ Query    │ │ Admin       │
-         │                  │ Lambda   │ │ Lambda      │
-         │                  └──────┬───┘ └──┬──────────┘
-         │                         │        │
-         │                         └────┬───┘
-         │                              ▼
-         │                    ┌───────────────────┐
-         │                    │ DynamoDB          │
-         │                    │ LocationCatalog   │
-         │                    └───────────────────┘
-         │
-         │ create/update trip
-         ▼
-┌───────────────────────┐
-│ Nomad Diary Backend   │
-│ Express / EC2         │
-└───────────┬───────────┘
-            │
-            ├────────────────────► PostgreSQL RDS
-            │
-            │ validate catalog place /
-            │ obtain canonical snapshot
-            ▼
-     Location Catalog API
+location-catalog-lambda/
+├── src/
+│   ├── handlers/
+│   │   └── query.js
+│   ├── repositories/
+│   │   └── location-catalog.repository.js
+│   └── shared/
+│       ├── cursor.js
+│       ├── normalize.js
+│       └── response.js
+├── .dockerignore
+├── compose.yaml
+├── DEPLOY.md
+├── Dockerfile
+├── package-lock.json
+└── package.json
 ```
 
-Hai đường request khác nhau được cố ý tách biệt:
+## API hiện có
 
-```text
-Catalog lookup
+Base path là `/v1`.
 
-Vue
- ↓
-API Gateway
- ↓
-Query Lambda
- ↓
-DynamoDB
-```
+| Method | Route | Truy cập DynamoDB | Mô tả |
+| --- | --- | --- | --- |
+| `GET` | `/v1/health` | Không | Kiểm tra Lambda đang hoạt động |
+| `GET` | `/v1/provinces` | Có | Danh sách tỉnh/thành đang active |
+| `GET` | `/v1/provinces/{provinceCode}/wards` | Có | Danh sách phường/xã đang active của tỉnh |
+| `GET` | `/v1/provinces/{provinceCode}/wards/{wardCode}/places` | Có | Danh sách địa điểm đang active của phường |
+| `GET` | `/v1/provinces/{provinceCode}/places/{placeId}` | Có | Lấy một địa điểm đang active |
 
-và:
+Handler chấp nhận path có một dấu `/` ở cuối. Mọi HTTP method khác `GET`
+trả về `405 METHOD_NOT_ALLOWED`.
 
-```text
-Nomad Diary business operation
+### Quy tắc path parameter
 
-Vue
- ↓
-ALB
- ↓
-Nomad Diary Express
- ↓
-PostgreSQL RDS
-```
+| Parameter | Quy tắc |
+| --- | --- |
+| `provinceCode` | Chính xác 2 chữ số |
+| `wardCode` | Chính xác 5 chữ số |
+| `placeId` | 1-64 ký tự gồm chữ, số, `_` hoặc `-` |
 
-Backend Nomad Diary chỉ gọi Catalog API khi cần xác minh một địa điểm hoặc lấy dữ liệu chuẩn trước khi tạo snapshot.
-
----
-
-# 4. Thành phần AWS
-
-## 4.1 API Gateway HTTP API
-
-API Gateway là public entry point của Location Catalog.
-
-Trách nhiệm:
-
-* HTTP routing.
-* CORS.
-* JWT Authorizer cho admin API.
-* Throttling.
-* Mapping request tới Lambda.
-* Request ID.
-* Custom domain trong tương lai nếu cần.
-
-Không chứa business logic.
-
----
-
-# 5. Lambda Functions
-
-Phiên bản đầu sử dụng **3 Lambda chính**.
-
-```text
-Lambda
-├── Query Lambda
-├── Admin Lambda
-└── Province Sync Lambda
-```
-
-Không áp dụng mô hình:
-
-```text
-1 endpoint = 1 Lambda
-```
-
-Một Lambda có thể phục vụ nhiều route có cùng responsibility.
-
----
-
-## 5.1 Query Lambda
-
-Chỉ phục vụ public read operations.
-
-```text
-GET province
-GET wards
-GET places
-GET place detail
-GET place search
-```
-
-IAM chỉ cấp:
-
-```text
-dynamodb:GetItem
-dynamodb:Query
-```
-
-Không có quyền:
-
-```text
-PutItem
-UpdateItem
-DeleteItem
-BatchWriteItem
-```
-
-Query Lambda có thể được gọi trực tiếp từ Nomad Diary frontend thông qua API Gateway.
-
----
-
-## 5.2 Admin Lambda
-
-Phục vụ thao tác quản trị:
-
-```text
-Create Place
-Update Place
-Archive Place
-Manual Sync Trigger
-```
-
-Các request phải được xác thực.
-
-IAM:
-
-```text
-dynamodb:GetItem
-dynamodb:Query
-dynamodb:PutItem
-dynamodb:UpdateItem
-dynamodb:TransactWriteItems
-```
-
----
-
-## 5.3 Province Sync Lambda
-
-Đồng bộ dữ liệu hành chính từ Province Open API.
-
-Có thể được kích hoạt bởi:
-
-```text
-EventBridge Scheduler
-```
-
-hoặc manual admin operation.
-
-IAM:
-
-```text
-dynamodb:GetItem
-dynamodb:Query
-dynamodb:PutItem
-dynamodb:UpdateItem
-dynamodb:BatchWriteItem
-```
-
----
-
-# 6. Network
-
-Lambda không cần nằm trong VPC ở phiên bản đầu.
-
-```text
-Internet
-   │
-   ▼
-API Gateway
-   │
-   ▼
-Lambda
-   │
-   ▼
-DynamoDB
-```
-
-Province Sync:
-
-```text
-Lambda
-   │
-   ▼
-Internet
-   │
-   ▼
-Province Open API
-```
-
-Thiết kế này không cần:
-
-* NAT Gateway.
-* Internet Gateway riêng cho Lambda.
-* RDS.
-* EC2.
-* OpenSearch.
-* ElastiCache.
-
-Điều này giúp Location Catalog giữ kiến trúc nhỏ và độc lập với infrastructure của Nomad Diary.
-
----
-
-# 7. Nguồn dữ liệu
-
-Dữ liệu tỉnh và phường/xã được đồng bộ từ:
-
-```text
-https://provinces.open-api.vn/api/v2/
-```
-
-Province Open API chỉ được sử dụng cho **administrative data**.
-
-Nó không được coi là nguồn đầy đủ cho:
-
-```text
-tourist attraction
-restaurant
-cafe
-hotel
-landmark
-natural attraction
-```
-
-Place catalog được:
-
-```text
-MANUAL
-```
-
-hoặc:
-
-```text
-IMPORTED
-```
-
-từ nguồn có quyền sử dụng phù hợp.
-
-Mỗi entity phải lưu nguồn:
-
-```text
-PROVINCE_OPEN_API
-MANUAL
-IMPORTED
-```
-
----
-
-# 8. DynamoDB
-
-Tên bảng:
-
-```text
-LocationCatalog
-```
-
-Capacity mode ban đầu:
-
-```text
-PAY_PER_REQUEST
-```
-
-Primary key:
-
-```text
-PK
-SK
-```
-
-Secondary indexes:
-
-```text
-GSI1
-├── GSI1PK
-└── GSI1SK
-
-GSI2
-├── GSI2PK
-└── GSI2SK
-```
-
-`GSI1` phục vụ danh sách Province và các access pattern cấp Province. `GSI2`
-phục vụ danh sách/search Place trong đúng một Ward đã chọn.
-
-Thiết kế theo access pattern, không thiết kế theo quan hệ như PostgreSQL.
-
----
-
-# 9. Access patterns
-
-Hệ thống phải hỗ trợ:
-
-```text
-1. List provinces
-2. Get province
-3. List wards by province
-4. List places by ward within province
-5. Search places by name prefix within ward
-6. Get place
-7. Create place
-8. Update place
-9. Archive place
-```
-
-Request thông thường không sử dụng:
-
-```text
-Scan
-```
-
----
-
-# 10. Province entity
-
-```json
-{
-  "PK": "PROVINCE#48",
-  "SK": "META",
-
-  "entityType": "PROVINCE",
-
-  "countryCode": "VN",
-
-  "code": "48",
-  "name": "Thành phố Đà Nẵng",
-  "normalizedName": "thanh pho da nang",
-
-  "administrativeVersion": "2025-v2",
-
-  "status": "ACTIVE",
-  "source": "PROVINCE_OPEN_API",
-
-  "GSI1PK": "COUNTRY#VN",
-  "GSI1SK": "PROVINCE#48"
-}
-```
-
-GSI1:
-
-```text
-GSI1PK = COUNTRY#VN
-```
-
-cho phép:
-
-```text
-GET /v1/provinces
-```
-
-mà không cần Scan.
-
----
-
-# 11. Ward entity
-
-```json
-{
-  "PK": "PROVINCE#48",
-  "SK": "WARD#20242",
-
-  "entityType": "WARD",
-
-  "code": "20242",
-  "provinceCode": "48",
-
-  "name": "Phường An Hải",
-  "normalizedName": "phuong an hai",
-
-  "status": "ACTIVE",
-  "source": "PROVINCE_OPEN_API"
-}
-```
-
-Query:
-
-```text
-PK = PROVINCE#48
-AND begins_with(SK, "WARD#")
-```
-
----
-
-# 12. Place entity
-
-```json
-{
-  "PK": "PROVINCE#48",
-  "SK": "PLACE#01JABC123",
-
-  "entityType": "PLACE",
-
-  "placeId": "01JABC123",
-
-  "provinceCode": "48",
-  "wardCode": "20242",
-
-  "name": "Cầu Rồng",
-  "normalizedName": "cau rong",
-
-  "description": "Cây cầu biểu tượng bắc qua sông Hàn.",
-
-  "address": "Nguyễn Văn Linh, Đà Nẵng",
-
-  "latitude": 16.0611,
-  "longitude": 108.2276,
-
-  "isFeatured": true,
-
-  "status": "ACTIVE",
-  "source": "MANUAL",
-
-  "createdAt": "2026-08-13T00:00:00.000Z",
-  "updatedAt": "2026-08-13T00:00:00.000Z",
-
-  "GSI1PK": "PROVINCE#48#PLACES",
-  "GSI1SK": "NAME#cau-rong#01JABC123",
-
-  "GSI2PK": "PROVINCE#48#WARD#20242#PLACES",
-  "GSI2SK": "STATUS#ACTIVE#NAME#cau-rong#01JABC123"
-}
-```
-
-`GSI2` là access path bắt buộc cho UI chọn Ward rồi tải Place:
-
-```text
-GSI2PK = PROVINCE#48#WARD#20242#PLACES
-AND begins_with(GSI2SK, "STATUS#ACTIVE#NAME#")
-```
-
-Query này bảo đảm DynamoDB chỉ đọc Place thuộc đồng thời Province `48`, Ward
-`20242` và có trạng thái `ACTIVE`. Frontend không tải toàn bộ Place của Province
-rồi tự lọc theo Ward.
-
-Search theo prefix trong Ward cũng sử dụng `GSI2`:
-
-```text
-GSI2PK = PROVINCE#48#WARD#20242#PLACES
-AND begins_with(GSI2SK, "STATUS#ACTIVE#NAME#cau")
-```
-
-Khi Place đổi Ward, đổi tên hoặc chuyển sang `ARCHIVED`, Admin Lambda phải cập
-nhật đồng thời `GSI2PK` và `GSI2SK`. Place đã archive không còn khớp prefix
-`STATUS#ACTIVE#` của public query.
-
-Ví dụ:
-
-```text
-c
-ca
-cau
-cau r
-```
-
-DynamoDB không được sử dụng như full-text search engine.
-
-Version đầu không tối ưu cho:
-
-```text
-contains(name, "rong")
-```
-
-hoặc fuzzy search.
-
----
-
-# 13. Chống trùng Place
-
-Khi tạo địa điểm, tạo thêm unique-lock item:
-
-```text
-PK = PROVINCE#48
-SK = UNIQUE#PLACE#cau-rong#20242
-```
-
-Admin Lambda sử dụng:
-
-```text
-TransactWriteItems
-```
-
-để tạo đồng thời:
-
-```text
-PLACE item
-+
-UNIQUE item
-```
-
-UNIQUE item sử dụng conditional expression:
-
-```text
-attribute_not_exists(PK)
-```
-
-Nếu đã tồn tại:
-
-```text
-409 PLACE_ALREADY_EXISTS
-```
-
-API trả địa điểm hiện tại để admin quyết định.
-
-Không tự động overwrite.
-
----
-
-# 14. Public API
-
-Base path:
-
-```text
-/v1
-```
-
-Routes:
+### Query danh sách địa điểm
 
 ```http
-GET /v1/health
-
-GET /v1/provinces
-GET /v1/provinces/{provinceCode}
-
-GET /v1/provinces/{provinceCode}/wards
-GET /v1/provinces/{provinceCode}/wards/{wardCode}/places
-
-GET /v1/provinces/{provinceCode}/places/{placeId}
+GET /v1/provinces/48/wards/20242/places?search=cau&featured=true&limit=20
 ```
 
-Search:
+| Query | Mặc định | Quy tắc |
+| --- | --- | --- |
+| `search` | Không có | Chuỗi sau khi trim dài 1-100 ký tự |
+| `featured` | Không lọc | Chỉ nhận chuỗi `true` hoặc `false` |
+| `limit` | `20` | Số nguyên từ 1 đến 50 |
+| `cursor` | Không có | Cursor opaque do response trước trả về |
 
-```http
-GET /v1/provinces/48/wards/20242/places?search=cau
-```
+`search` là prefix search, không phải full-text hay fuzzy search. Giá trị được:
 
-Filter:
+1. Chuẩn hóa NFD và bỏ các combining mark Unicode.
+2. Chuyển thành chữ thường.
+3. Trim và gom nhiều khoảng trắng thành một.
+4. Đổi khoảng trắng thành dấu `-`.
 
-```http
-GET /v1/provinces/48/wards/20242/places?featured=true
-```
+Ví dụ `Cầu Rồng` trở thành search key `cau-rong`. Repository dùng key này để
+query prefix của `GSI2SK`.
 
-Pagination:
+`cursor` được encode bằng Base64 URL-safe từ `LastEvaluatedKey` và scope của
+request. Cursor chỉ dùng lại được với đúng `provinceCode`, `wardCode`,
+`search` và `featured` đã tạo ra nó.
 
-```http
-GET /v1/provinces/48/wards/20242/places?limit=20&cursor=...
-```
+## Response contract
 
----
-
-# 15. Pagination
-
-Không sử dụng SQL-style pagination:
+Tất cả response có header:
 
 ```text
-page=3
-offset=40
+content-type: application/json; charset=utf-8
 ```
 
-Sử dụng DynamoDB cursor.
-
-Response:
-
-```json
-{
-  "data": [],
-  "meta": {
-    "nextCursor": null
-  }
-}
-```
-
-`nextCursor` được encode từ:
-
-```text
-LastEvaluatedKey
-```
-
-Client không cần hiểu cấu trúc DynamoDB key bên trong cursor.
-
----
-
-# 16. UI access pattern
-
-Nomad Diary frontend có thể gọi public Catalog API trực tiếp.
-
-Khi mở form:
-
-```text
-Create Trip
-    │
-    ▼
-GET /v1/provinces
-```
-
-User chọn Province:
-
-```text
-Province
-[ Đà Nẵng ▼ ]
-       │
-       │ provinceCode = 48
-       ▼
-GET /v1/provinces/48/wards
-       │
-       ▼
-Ward options
-```
-
-User chọn Ward:
-
-```text
-Ward
-[ Phường An Hải ▼ ]
-       │
-       │ provinceCode = 48
-       │ wardCode = 20242
-       ▼
-GET /v1/provinces/48/wards/20242/places
-       │
-       ▼
-Chỉ Place thuộc Ward 20242
-```
-
-Khi Province thay đổi, frontend phải xóa Ward và Place đang chọn. Khi Ward thay
-đổi, frontend phải xóa Place đang chọn rồi tải lại danh sách từ endpoint của Ward
-mới.
-
----
-
-# 17. Search từ frontend
-
-Không gọi API sau mỗi keystroke ngay lập tức.
-
-Ví dụ user nhập:
-
-```text
-c
-ca
-cau
-cau r
-cau ro
-cau rong
-```
-
-Frontend sử dụng debounce khoảng:
-
-```text
-300–500 ms
-```
-
-sau đó mới gọi:
-
-```http
-GET /v1/provinces/48/wards/20242/places?search=cau
-```
-
-Nếu search mới bắt đầu trước khi request cũ hoàn thành, frontend nên hủy hoặc bỏ qua response cũ.
-
----
-
-# 18. Client caching
-
-Province data thay đổi rất ít.
-
-Frontend nên cache:
-
-```text
-provinceCache
-```
-
-trong session/application state.
-
-Có thể cache:
-
-```text
-wardCache
-  ├── province 48
-  └── province 01
-
-placeCache
-  ├── province 48
-  └── province 01
-```
-
-Không gọi lại API nếu dữ liệu phù hợp đã có và chưa cần refresh.
-
-Catalog vẫn phải hoạt động đúng khi client không cache.
-
----
-
-# 19. Admin API
-
-Routes:
-
-```http
-POST   /v1/admin/provinces/{provinceCode}/places
-
-PATCH  /v1/admin/provinces/{provinceCode}/places/{placeId}
-
-DELETE /v1/admin/provinces/{provinceCode}/places/{placeId}
-
-POST   /v1/admin/sync/provinces
-```
-
-Ví dụ create:
-
-```json
-{
-  "name": "Cầu Tình Yêu",
-  "wardCode": "20242",
-  "description": "Điểm đi bộ và ngắm sông Hàn.",
-  "address": "Đường Trần Hưng Đạo, Đà Nẵng",
-  "latitude": 16.0631,
-  "longitude": 108.2295,
-  "isFeatured": true
-}
-```
-
----
-
-# 20. Soft delete
-
-DELETE không xóa vật lý Place.
-
-Thay vào đó:
-
-```text
-ACTIVE
-   ↓
-ARCHIVED
-```
-
-Public API chỉ trả:
-
-```text
-status = ACTIVE
-```
-
-Admin có thể truy cập archived item nếu cần.
-
-Điều này bảo vệ các hệ thống đang tham chiếu tới place cũ.
-
----
-
-# 21. Authentication và Authorization
-
-Public routes:
-
-```text
-GET /v1/*
-```
-
-không bắt buộc login ở version đầu.
-
-API Gateway áp dụng throttling.
-
-Admin routes sử dụng JWT Authorizer.
-
-Scopes:
-
-```text
-location.read
-location.write
-location.sync
-```
-
-Ví dụ:
-
-```text
-POST /places
-→ location.write
-
-PATCH /places/{id}
-→ location.write
-
-DELETE /places/{id}
-→ location.write
-
-POST /sync/provinces
-→ location.sync
-```
-
----
-
-# 22. CORS
-
-Vì Nomad Diary frontend gọi Catalog API trực tiếp, API Gateway phải cấu hình CORS.
-
-Production origin:
-
-```text
-https://nomad-diary.site
-```
-
-Development origin:
-
-```text
-http://localhost:<frontend-port>
-```
-
-Không mặc định mở:
-
-```text
-Access-Control-Allow-Origin: *
-```
-
-nếu API sau này có authenticated browser routes hoặc credentials.
-
-Allowed methods public:
-
-```text
-GET
-OPTIONS
-```
-
-Admin API bổ sung:
-
-```text
-POST
-PATCH
-DELETE
-```
-
----
-
-# 23. Response format
-
-Success:
+### Health
 
 ```json
 {
   "data": {
-    "code": "48",
-    "name": "Thành phố Đà Nẵng"
+    "service": "location-catalog",
+    "status": "ok"
   }
 }
 ```
 
-Collection:
+### Danh sách tỉnh
 
 ```json
 {
-  "data": [],
+  "data": [
+    {
+      "code": "48",
+      "name": "Thành phố Đà Nẵng"
+    }
+  ],
   "meta": {
     "nextCursor": null
   }
 }
 ```
 
----
+### Danh sách phường/xã
 
-# 24. Error format
+```json
+{
+  "data": [
+    {
+      "code": "20242",
+      "provinceCode": "48",
+      "name": "Phường An Hải"
+    }
+  ],
+  "meta": {
+    "nextCursor": null
+  }
+}
+```
+
+### Danh sách địa điểm
+
+```json
+{
+  "data": [
+    {
+      "placeId": "01JABC123",
+      "provinceCode": "48",
+      "wardCode": "20242",
+      "name": "Cầu Rồng"
+    }
+  ],
+  "meta": {
+    "nextCursor": "eyJrZXkiOns..."
+  }
+}
+```
+
+`nextCursor` là `null` khi không còn trang tiếp theo.
+
+### Chi tiết địa điểm
+
+```json
+{
+  "data": {
+    "placeId": "01JABC123",
+    "provinceCode": "48",
+    "wardCode": "20242",
+    "name": "Cầu Rồng"
+  }
+}
+```
+
+Tên route là “chi tiết”, nhưng mapper hiện tại chỉ trả bốn field ở trên. Các
+field được đọc trong projection như `description`, `address`, `latitude`,
+`longitude` và `isFeatured` chưa được đưa vào response.
+
+### Error
 
 ```json
 {
   "error": {
-    "code": "PLACE_NOT_FOUND",
-    "message": "Place not found",
+    "code": "VALIDATION_ERROR",
+    "message": "provinceCode must contain 2 digits",
     "requestId": "api-gateway-request-id"
   }
 }
 ```
 
-Error codes:
+`requestId` chỉ có khi event đầu vào chứa
+`requestContext.requestId`.
+
+| HTTP status | Error code có thể gặp |
+| --- | --- |
+| `400` | `VALIDATION_ERROR` |
+| `404` | `WARD_NOT_FOUND`, `PLACE_NOT_FOUND`, `ROUTE_NOT_FOUND` |
+| `405` | `METHOD_NOT_ALLOWED` |
+| `500` | `INTERNAL_ERROR` |
+
+Lỗi ngoài dự kiến được ghi ra `console.error` dưới dạng JSON với request ID,
+method, path, tên lỗi và message. Client chỉ nhận message tổng quát.
+
+## DynamoDB contract
+
+Code đang cố định:
 
 ```text
-VALIDATION_ERROR          400
-UNAUTHORIZED              401
-FORBIDDEN                 403
-
-PROVINCE_NOT_FOUND        404
-WARD_NOT_FOUND            404
-PLACE_NOT_FOUND           404
-
-PLACE_ALREADY_EXISTS      409
-
-RATE_LIMITED              429
-
-INTERNAL_ERROR            500
+Region:     ap-southeast-1
+Table:      LocationCatalog
+GSI dùng:   GSI1, GSI2
 ```
 
-Không trả:
+Module không đọc tên bảng hoặc region từ environment variable.
 
-* Stack trace.
-* DynamoDB PK/SK.
-* AWS account information.
-* Internal exception.
-* Credential.
-* Secret.
+### Access pattern
 
----
-
-# 25. Validation
-
-Place:
+#### Tỉnh/thành
 
 ```text
-name
+IndexName = GSI1
+GSI1PK = COUNTRY#VN
+status = ACTIVE
 ```
 
-bắt buộc.
+Response lấy `code` và `name`.
+
+#### Phường/xã theo tỉnh
 
 ```text
-provinceCode
+PK = PROVINCE#{provinceCode}
+begins_with(SK, "WARD#")
+status = ACTIVE
 ```
 
-bắt buộc.
+Response lấy `code`, `provinceCode` và `name`.
 
-`wardCode` bắt buộc với Place trong version đầu.
+#### Kiểm tra phường/xã
 
-Trước khi create hoặc update Place, backend phải xác minh:
+Trước khi query địa điểm, handler đọc:
 
 ```text
-ward.provinceCode === place.provinceCode
-ward.status === ACTIVE
+PK = PROVINCE#{provinceCode}
+SK = WARD#{wardCode}
 ```
 
-Public endpoint nhận cả `provinceCode` và `wardCode`; nếu Ward không tồn tại
-trong Province đó thì trả `404 WARD_NOT_FOUND`. Không fallback sang danh sách
-Place toàn Province.
+Item chỉ hợp lệ khi `entityType = WARD` và `status = ACTIVE`.
 
-Latitude:
+#### Địa điểm theo phường
 
 ```text
--90 <= latitude <= 90
+IndexName = GSI2
+GSI2PK = PROVINCE#{provinceCode}#WARD#{wardCode}#PLACES
+begins_with(
+  GSI2SK,
+  "STATUS#ACTIVE#NAME#{normalizedSearchPrefix}"
+)
 ```
 
-Longitude:
+Khi có `featured`, repository thêm DynamoDB `FilterExpression` trên
+`isFeatured`. Filter được áp dụng sau giới hạn đọc của DynamoDB, vì vậy một
+trang có thể ít hơn `limit` item dù vẫn còn `nextCursor`.
+
+#### Chi tiết địa điểm
 
 ```text
--180 <= longitude <= 180
+PK = PROVINCE#{provinceCode}
+SK = PLACE#{placeId}
 ```
 
-Không sử dụng:
+Item chỉ hợp lệ khi `entityType = PLACE` và `status = ACTIVE`.
 
-```text
-0, 0
-```
-
-để biểu diễn missing coordinate.
-
-Nếu không có coordinate:
-
-```text
-latitude = undefined
-longitude = undefined
-```
-
----
-
-# 26. Normalize dữ liệu
-
-Client không được gửi `normalizedName` làm nguồn dữ liệu chuẩn.
-
-Backend tự tạo:
-
-```text
-Cầu Rồng
-   ↓
-cau rong
-```
-
-Normalization phải nhất quán giữa:
-
-```text
-create
-update
-search
-unique-key generation
-```
-
----
-
-# 27. Province synchronization
-
-Luồng:
-
-```text
-EventBridge Scheduler
-        │
-        ▼
-Province Sync Lambda
-        │
-        ▼
-Province Open API v2
-        │
-        ▼
-validate
-        │
-        ▼
-normalize
-        │
-        ▼
-compare
-        │
-        ▼
-DynamoDB
-```
-
-Endpoint nguồn:
-
-```text
-GET /api/v2/?depth=2
-```
-
----
-
-# 28. Quy tắc sync
-
-Sync Lambda phải:
-
-* Có HTTP timeout.
-* Retry giới hạn.
-* Exponential backoff.
-* Validate response.
-* Không phá dữ liệu hiện tại khi upstream lỗi.
-* Không xóa dữ liệu chỉ vì response mới thiếu.
-* Ghi thời gian sync.
-* Ghi administrative version.
-* Log thống kê.
-
-Ví dụ log:
+### Item tối thiểu mà code mong đợi
 
 ```json
 {
-  "event": "province_sync_completed",
-  "provincesAdded": 2,
-  "provincesUpdated": 3,
-  "wardsAdded": 20,
-  "wardsUpdated": 12,
-  "skipped": 0
-}
-```
-
----
-
-# 29. EventBridge Scheduler
-
-Sync không cần server chạy liên tục.
-
-```text
-EventBridge
-     │
-     │ schedule
-     ▼
-Sync Lambda
-     │
-     ▼
-Province API
-     │
-     ▼
-DynamoDB
-```
-
-Schedule cụ thể được quyết định khi triển khai.
-
-Ngoài scheduled sync, admin có thể trigger manual sync.
-
----
-
-# 30. Tích hợp Nomad Diary
-
-Catalog lookup:
-
-```text
-Nomad Diary FE
-      │
-      ▼
-Location Catalog API
-```
-
-Không cần đi:
-
-```text
-FE
- ↓
-Nomad Diary Backend
- ↓
-Catalog
-```
-
-cho những public lookup thông thường.
-
-Điều này tránh một network hop không cần thiết.
-
----
-
-# 31. Lưu Place vào Trip
-
-Khi user chọn một catalog place, frontend giữ identifier:
-
-```json
-{
-  "externalPlaceId": "01JABC123",
-  "provinceCode": "48"
-}
-```
-
-Khi user lưu trip:
-
-```text
-Vue
- │
- │ externalPlaceId
- ▼
-Nomad Diary Backend
- │
- │ GET canonical place
- ▼
-Location Catalog API
- │
- ▼
-Nomad Diary Backend
- │
- │ create snapshot
- ▼
-PostgreSQL RDS
-```
-
-Frontend không được coi là canonical source cho:
-
-```text
-placeName
-provinceName
-wardName
-address
-latitude
-longitude
-```
-
----
-
-# 32. Snapshot
-
-Nomad Diary lưu snapshot tối thiểu:
-
-```text
-externalPlaceId
-
-provinceCode
-provinceName
-
-placeName
-wardName
-
-address
-
-latitude
-longitude
-```
-
-Ví dụ:
-
-```json
-{
-  "externalPlaceId": "01JABC123",
+  "PK": "PROVINCE#48",
+  "SK": "WARD#20242",
+  "entityType": "WARD",
+  "status": "ACTIVE",
+  "code": "20242",
   "provinceCode": "48",
-  "provinceName": "Thành phố Đà Nẵng",
-  "placeName": "Cầu Rồng",
-  "wardName": "Phường An Hải",
-  "address": "Nguyễn Văn Linh, Đà Nẵng",
-  "latitude": 16.0611,
-  "longitude": 108.2276
+  "name": "Phường An Hải"
 }
 ```
-
-Snapshot được lấy từ Catalog API tại thời điểm ghi.
-
----
-
-# 33. Tại sao cần snapshot?
-
-Giả sử năm 2026:
-
-```text
-Place
-Cầu ABC
-```
-
-Năm 2028 catalog đổi:
-
-```text
-Cầu ABC
-→ Cầu XYZ
-```
-
-Trip năm 2026 vẫn phải có khả năng hiển thị dữ liệu tại thời điểm user lưu.
-
-Tương tự nếu Catalog API:
-
-```text
-temporarily unavailable
-```
-
-Nomad Diary vẫn đọc nhật ký từ RDS bình thường.
-
-Do đó không thiết kế:
-
-```text
-Trip Stop
-   │
-   └── externalPlaceId ONLY
-```
-
-mà thiết kế:
-
-```text
-Trip Stop
-   │
-   ├── externalPlaceId
-   │
-   └── place snapshot
-```
-
----
-
-# 34. User-created Place
-
-Nếu user không tìm thấy địa điểm:
-
-```text
-Search
-  ↓
-No result
-  ↓
-Enter manually
-```
-
-địa điểm đó thuộc Nomad Diary.
-
-```text
-Nomad Diary RDS
-```
-
-Không tự động:
-
-```text
-User Place
-   ↓
-Location Catalog
-```
-
-Điều này tránh biến shared catalog thành bãi chứa dữ liệu chưa kiểm duyệt.
-
-Trong tương lai có thể xây dựng:
-
-```text
-User contribution
-      ↓
-Pending
-      ↓
-Admin review
-      ↓
-Approved
-      ↓
-Catalog
-```
-
-nhưng không nằm trong version đầu.
-
----
-
-# 35. Catalog failure strategy
-
-Catalog không được trở thành dependency bắt buộc khiến user không thể ghi nhật ký.
-
-Ví dụ:
-
-```text
-Catalog unavailable
-        │
-        ▼
-User vẫn có thể
-nhập place manually
-        │
-        ▼
-Save Trip
-```
-
-Nếu user đang chọn một `externalPlaceId` nhưng backend không thể validate vì Catalog lỗi, behavior cụ thể cần được xác định ở tầng Nomad Diary theo mức độ consistency mong muốn.
-
-Nguyên tắc:
-
-```text
-Catalog hỗ trợ Nomad Diary.
-
-Catalog không được khóa toàn bộ Nomad Diary.
-```
-
----
-
-# 36. Project structure
-
-```text
-location-catalog/
-├── src/
-│   ├── handlers/
-│   │   ├── query.js
-│   │   ├── admin.js
-│   │   └── sync.js
-│   │
-│   ├── repositories/
-│   │   └── locations.repository.js
-│   │
-│   ├── services/
-│   │   ├── locations.service.js
-│   │   └── province-sync.service.js
-│   │
-│   ├── schemas/
-│   │   ├── place.schema.js
-│   │   └── query.schema.js
-│   │
-│   └── shared/
-│       ├── response.js
-│       ├── normalize.js
-│       ├── cursor.js
-│       └── logger.js
-│
-├── tests/
-│   ├── unit/
-│   └── integration/
-│
-├── events/
-│
-├── template.yaml
-├── samconfig.toml.example
-├── package.json
-└── README.md
-```
-
-Tên `location-catalog` được ưu tiên hơn typo:
-
-```text
-lamda/
-```
-
----
-
-# 37. Environment variables
-
-```env
-TABLE_NAME=LocationCatalog
-
-ADMIN_JWT_ISSUER=
-ADMIN_JWT_AUDIENCE=
-
-PROVINCES_API_BASE_URL=https://provinces.open-api.vn/api/v2
-PROVINCES_SYNC_TIMEOUT_MS=5000
-
-LOG_LEVEL=info
-```
-
-Không đặt AWS access key trong environment.
-
-Lambda sử dụng:
-
-```text
-IAM Execution Role
-```
-
-AWS SDK tự lấy temporary credentials từ execution environment.
-
----
-
-# 38. Local development
-
-Yêu cầu:
-
-* Node.js runtime tương ứng `template.yaml`.
-* Docker Desktop.
-* AWS CLI.
-* AWS SAM CLI.
-
-Commands:
-
-```sh
-sam validate
-sam build
-sam local start-api
-```
-
-Deploy lần đầu:
-
-```sh
-sam deploy --guided
-```
-
-Sau khi có `samconfig.toml`:
-
-```sh
-sam deploy
-```
-
----
-
-# 39. Testing
-
-## Unit test
-
-Mock:
-
-```text
-DynamoDB Document Client
-```
-
-Không phụ thuộc AWS account thật.
-
-Test:
-
-```text
-normalization
-validation
-cursor encode/decode
-service logic
-duplicate handling
-response mapping
-```
-
-## Integration test
-
-Có thể sử dụng:
-
-```text
-DynamoDB Local
-```
-
-Test:
-
-```text
-Query
-GetItem
-TransactWriteItems
-pagination
-GSI access
-```
-
----
-
-# 40. Logging
-
-Sử dụng structured log.
-
-Ví dụ:
 
 ```json
 {
-  "level": "info",
-  "event": "place_query",
+  "PK": "PROVINCE#48",
+  "SK": "PLACE#01JABC123",
+  "GSI2PK": "PROVINCE#48#WARD#20242#PLACES",
+  "GSI2SK": "STATUS#ACTIVE#NAME#cau-rong#01JABC123",
+  "entityType": "PLACE",
+  "status": "ACTIVE",
+  "placeId": "01JABC123",
   "provinceCode": "48",
-  "durationMs": 23,
-  "resultCount": 20
+  "wardCode": "20242",
+  "name": "Cầu Rồng",
+  "isFeatured": true
 }
 ```
 
-Không log:
+Item tỉnh còn phải xuất hiện trong `GSI1` với
+`GSI1PK = COUNTRY#VN`.
+
+### IAM tối thiểu
+
+Execution role của Lambda cần quyền đọc bảng và index:
 
 ```text
-JWT
-Authorization header
-credentials
-secret
-sensitive admin request data
+dynamodb:GetItem
+dynamodb:Query
 ```
 
----
+Source code không thực hiện `PutItem`, `UpdateItem`, `DeleteItem` hoặc
+`Scan`.
 
-# 41. Monitoring
+## Cài dependency
 
-CloudWatch theo dõi:
-
-```text
-Lambda Errors
-Lambda Duration
-Lambda Throttles
-
-API Gateway 4xx
-API Gateway 5xx
-API Gateway Latency
-
-DynamoDB ThrottledRequests
-DynamoDB ConsumedCapacity
+```powershell
+cd D:\hub\nomad-diary\location-catalog-lambda
+npm ci
 ```
 
-Tạo alarm cho lỗi đáng chú ý.
+`package.json` hiện không khai báo npm script để start, test, migrate hoặc
+import dữ liệu.
 
----
+## Chạy local bằng Docker
 
-# 42. Cost control
+Build image Linux AMD64:
 
-Version đầu ưu tiên kiến trúc:
-
-```text
-API Gateway HTTP API
-        +
-Lambda
-        +
-DynamoDB PAY_PER_REQUEST
+```powershell
+cd D:\hub\nomad-diary\location-catalog-lambda
+$env:BUILDX_NO_DEFAULT_ATTESTATIONS = "1"
+docker compose build
 ```
 
-Không chạy server 24/7 riêng cho Catalog.
+Khởi động Lambda Runtime Interface Emulator:
 
-Đặt:
-
-```text
-Lambda timeout
-reserved concurrency
-API Gateway throttling
-AWS Budget
+```powershell
+docker compose up
 ```
 
-để tránh runaway cost.
+Gọi health check từ một cửa sổ PowerShell khác:
 
----
+```powershell
+$eventBody = @{
+  version = "2.0"
+  rawPath = "/v1/health"
+  requestContext = @{
+    http = @{
+      method = "GET"
+      path = "/v1/health"
+    }
+  }
+} | ConvertTo-Json -Depth 5
 
-# 43. Security
-
-Nguyên tắc:
-
-```text
-least privilege
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:9000/2015-03-31/functions/function/invocations" `
+  -ContentType "application/json" `
+  -Body $eventBody
 ```
 
-Mỗi Lambda có IAM role phù hợp với nhiệm vụ.
+Dừng container:
 
-Không sử dụng chung một role có:
-
-```text
-dynamodb:*
+```powershell
+docker compose down
 ```
 
-cho tất cả Lambda.
+`/v1/health` không gọi DynamoDB. Các route dữ liệu cần AWS SDK tìm thấy
+credentials hợp lệ và truy cập được bảng `LocationCatalog` ở
+`ap-southeast-1`. `compose.yaml` hiện không mount credentials và không cấu
+hình DynamoDB Local.
 
-Public Query Lambda không được quyền ghi.
+## Docker và Lambda
 
-Admin API bắt buộc authorization.
+`Dockerfile`:
 
-Không commit:
+- Dùng base image `public.ecr.aws/lambda/nodejs:22`.
+- Chỉ cài production dependencies bằng `npm ci --omit=dev`.
+- Copy thư mục `src` vào Lambda task root.
+- Dùng handler `src/handlers/query.handler`.
 
-```text
-AWS access key
-AWS secret key
-JWT secret
-samconfig chứa secret
-.env production
+`compose.yaml` build và chạy image `nomad-diary/location-catalog:latest` cho
+platform `linux/amd64`, map cổng local `9000` vào cổng Lambda `8080`.
+
+Hướng dẫn build image và các bước deploy thủ công hiện có nằm trong
+[`DEPLOY.md`](./DEPLOY.md).
+
+Khi cấu hình API Gateway, cả năm route trong bảng API phải trỏ về cùng Query
+Lambda integration. Nếu stage không bật auto-deploy, cần deploy lại stage sau
+khi thêm hoặc sửa route.
+
+## Kiểm tra source
+
+Module hiện không có automated test. Có thể chạy syntax check cho toàn bộ source:
+
+```powershell
+Get-ChildItem src -Recurse -Filter *.js |
+  ForEach-Object { node --check $_.FullName }
 ```
 
----
+Sau đó build container và gọi `/v1/health` như phần trên. Việc health check
+thành công không xác nhận IAM, schema/index hoặc dữ liệu thật trong DynamoDB.
 
-# 44. Version 1 scope
+## Giới hạn cần lưu ý
 
-Version đầu tập trung vào:
-
-```text
-Province
-Ward
-Place
-
-Exact lookup
-Prefix search
-Admin CRUD
-Administrative sync
-```
-
-Không đưa quá nhiều bài toán vào DynamoDB ngay từ đầu.
-
----
-
-# 45. Ngoài phạm vi Version 1
-
-Không triển khai:
-
-* Full-text search.
-* Fuzzy search.
-* OpenSearch.
-* Geospatial index.
-* Nearby search.
-* Route planning.
-* Distance calculation.
-* Google Places synchronization.
-* User trip storage.
-* User image storage.
-* Public place contribution không kiểm duyệt.
-* Recommendation engine.
-
-Nếu sau này cần:
-
-```text
-"quán cafe trong bán kính 3 km"
-```
-
-thì cần đánh giá riêng geospatial access pattern thay vì ép DynamoDB hiện tại xử lý.
-
----
-
-# 46. Roadmap
-
-## Phase 1: Read-only Catalog
-
-```text
-AWS SAM scaffold
-        ↓
-DynamoDB + GSI
-        ↓
-Province/Ward import
-        ↓
-Query Lambda
-        ↓
-API Gateway
-        ↓
-Public API
-```
-
-Bao gồm:
-
-* Validation.
-* Pagination.
-* Unit test.
-* Integration test.
-* CORS.
-* Throttling.
-
----
-
-## Phase 2: Place Administration
-
-```text
-JWT Authorizer
-      ↓
-Admin Lambda
-      ↓
-CRUD Place
-      ↓
-Duplicate protection
-      ↓
-Soft delete
-```
-
-Bao gồm:
-
-* `TransactWriteItems`.
-* UNIQUE item.
-* `ARCHIVED`.
-* Audit timestamps.
-
----
-
-## Phase 3: Automation
-
-```text
-EventBridge
-     ↓
-Province Sync Lambda
-     ↓
-Province Open API
-     ↓
-DynamoDB
-```
-
-Bổ sung:
-
-* CloudWatch alarms.
-* Dashboard.
-* CI/CD.
-* Automated deployment.
-* Custom domain nếu cần.
-
----
-
-## Phase 4: Nomad Diary Integration
-
-Frontend:
-
-```text
-Province Combobox
-       ↓
-Ward Combobox
-       ↓
-Place Search/Combobox
-```
-
-Data flow:
-
-```text
-Nomad Diary FE
-     │
-     ├──── Public lookup ────► Location Catalog
-     │
-     └──── Trip mutation ────► Nomad Diary Backend
-```
-
-Nomad Diary backend:
-
-```text
-externalPlaceId
-      ↓
-Catalog validation
-      ↓
-Canonical data
-      ↓
-Snapshot
-      ↓
-RDS
-```
-
-User-created places vẫn thuộc Nomad Diary.
-
----
-
-# 47. Kiến trúc cuối cùng
-
-```text
-                         EXTERNAL DATA
-                              │
-                    Province Open API
-                              │
-                              ▼
-                     EventBridge Scheduler
-                              │
-                              ▼
-                       Sync Lambda
-                              │
-                              ▼
-┌──────────────────────────────────────────────────────────┐
-│                LOCATION CATALOG                         │
-│                                                        │
-│    API Gateway                                         │
-│        │                                               │
-│        ├──── Query Lambda ─────┐                       │
-│        │                       │                       │
-│        └──── Admin Lambda ─────┼────► DynamoDB         │
-│                                │      LocationCatalog  │
-└──────────────────────────────────────────────────────────┘
-              ▲                         ▲
-              │                         │
-              │ public lookup           │ server lookup
-              │                         │
-        ┌─────┴─────┐           ┌──────┴──────────┐
-        │ Nomad     │           │ Nomad Diary     │
-        │ Diary FE  │           │ Backend         │
-        │ Vue       │           │ Express / EC2   │
-        └─────┬─────┘           └──────┬──────────┘
-              │                        │
-              │ trip operations        │
-              └───────────────────────►│
-                                       │
-                                       ▼
-                               PostgreSQL RDS
-                                       │
-                                       ▼
-                             User / Trip / Stop /
-                              Image / Snapshot
-```
-
-Boundary cuối cùng:
-
-```text
-Location Catalog
-────────────────────────
-"What places exist?"
-
-Nomad Diary
-────────────────────────
-"Where did this user go?"
-```
-
-Đây là nguyên tắc quan trọng nhất của toàn bộ thiết kế.
-
-Location Catalog có thể thay đổi, đồng bộ hoặc mở rộng độc lập.
-
-Nomad Diary vẫn giữ toàn quyền sở hữu lịch sử của user và không phụ thuộc vào trạng thái hiện tại của catalog để đọc lại dữ liệu cũ.
+- Region và tên bảng đang hard-code trong repository.
+- Chỉ có read API; module không tự tạo hoặc cập nhật catalog.
+- Không có endpoint lấy riêng chi tiết tỉnh hay phường/xã.
+- Province và ward list chưa có pagination.
+- Place response hiện chỉ trả `placeId`, `provinceCode`, `wardCode` và
+  `name`.
+- Search chỉ hỗ trợ prefix theo normalized name.
+- Regex trong `normalize.js` hiện chứa chuỗi mojibake `Ä‘`/`Ä`, nên ký tự
+  `đ`/`Đ` chưa được đổi chính xác thành `d`/`D`.
+- CORS, auth, rate limit, domain và route deployment không nằm trong source.
+- `LOG_LEVEL=info` có trong `compose.yaml`, nhưng source hiện không đọc biến
+  này.
+- Frontend/backend Nomad Diary hiện vẫn dùng API và dữ liệu địa điểm riêng; chưa
+  có code gọi Location Catalog Lambda.
