@@ -1,6 +1,4 @@
 .git
-infra
 node_modules
-tests
 *.md
 compose.yaml
