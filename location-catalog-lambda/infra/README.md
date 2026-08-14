@@ -3,24 +3,16 @@
 Thư mục này chứa utility tạo và kiểm tra schema DynamoDB. Lambda runtime không
 tự tạo table.
 
-## Cấu hình
+## Cấu hình cố định
 
-PowerShell, AWS DynamoDB tại Singapore:
-
-```powershell
-$env:AWS_REGION = "ap-southeast-1"
-$env:TABLE_NAME = "LocationCatalog"
+```text
+Region: ap-southeast-1
+Table:  LocationCatalog
 ```
 
-Nếu chạy với DynamoDB Local, bổ sung:
-
-```powershell
-$env:DYNAMODB_ENDPOINT = "http://localhost:8000"
-```
-
-Không đặt AWS access key hoặc secret key trong source hay file environment.
-Khi không có `DYNAMODB_ENDPOINT`, AWS SDK sử dụng credential provider chain của
-AWS CLI.
+Không sử dụng environment variable cho Region hoặc table name. Không đặt AWS
+access key hoặc secret key trong source. AWS SDK sử dụng credential provider
+chain của AWS CLI.
 
 ## Tạo hoặc kiểm tra table
 
@@ -42,3 +34,21 @@ npm.cmd run dynamodb:verify
 ```
 
 Lệnh verify không tạo hoặc cập nhật table.
+
+## Import Province và Ward
+
+Importer lấy dữ liệu từ:
+
+```text
+https://provinces.open-api.vn/api/v2/?depth=2
+```
+
+Chạy:
+
+```powershell
+npm.cmd run dynamodb:import:provinces
+```
+
+Importer kiểm tra schema trước, chuẩn hóa Province/Ward, ghi tối đa 25 item mỗi
+batch và retry `UnprocessedItems`. Importer chỉ upsert, không xóa record hiện có
+khi upstream thiếu dữ liệu.

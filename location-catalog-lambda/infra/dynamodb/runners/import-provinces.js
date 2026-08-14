@@ -1,6 +1,7 @@
-import { createLocationCatalogTableDefinition } from "../tables/location-catalog.table.js";
+import { importProvinceAndWardData } from "../importers/province-ward.importer.js";
 import { createDynamoDBClient } from "../utils/client.js";
 import { assertTableSchema, describeTable } from "../utils/table-helper.js";
+import { createLocationCatalogTableDefinition } from "../tables/location-catalog.table.js";
 
 const client = createDynamoDBClient();
 const tableDefinition = createLocationCatalogTableDefinition();
@@ -12,7 +13,11 @@ try {
     }
 
     assertTableSchema(tableDefinition, tableDescription);
-    console.log(`Table "${tableDefinition.TableName}" schema is valid.`);
+    const summary = await importProvinceAndWardData(client);
+
+    console.log(
+        JSON.stringify({ event: "province_ward_import_completed", ...summary }),
+    );
 } catch (error) {
     console.error(error);
     process.exitCode = 1;

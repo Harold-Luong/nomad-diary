@@ -28,8 +28,8 @@ Các thông số build được khai báo trong `compose.yaml`:
 
 ```yaml
 services:
-  health:
-    image: location-catalog:health
+  api:
+    image: location-catalog:latest
     platform: linux/amd64
     build:
       context: .
@@ -50,7 +50,7 @@ docker compose build
 Ý nghĩa cấu hình:
 
 ```text
-image                       Đặt tên image local là location-catalog:health
+image                       Đặt tên image local là location-catalog:latest
 platform                    Chạy container bằng Linux AMD64
 build.context               Dùng thư mục hiện tại làm build context
 build.dockerfile            Dùng file Dockerfile
@@ -72,14 +72,14 @@ docker images location-catalog
 Kiểm tra hệ điều hành và kiến trúc:
 
 ```powershell
-docker image inspect location-catalog:health `
+docker image inspect location-catalog:latest `
   --format 'name={{index .RepoTags 0}} architecture={{.Architecture}} os={{.Os}} size={{.Size}} bytes'
 ```
 
 Kết quả cần có:
 
 ```text
-name=location-catalog:health
+name=location-catalog:latest
 architecture=amd64
 os=linux
 ```
@@ -92,9 +92,9 @@ x86_64
 
 Image local sau bước này chưa được push lên ECR.
 
-## Chạy health-check local
+## Chạy API local
 
-Khởi động Lambda container:
+Khởi động Lambda container chứa toàn bộ Location Catalog API:
 
 ```powershell
 docker compose up
