@@ -10,9 +10,11 @@
   "scripts": {
     "test": "node --test",
     "dynamodb:migrate": "node infra/dynamodb/runners/migrate.js",
-    "dynamodb:verify": "node infra/dynamodb/runners/verify.js"
+    "dynamodb:verify": "node infra/dynamodb/runners/verify.js",
+    "dynamodb:import:provinces": "node infra/dynamodb/runners/import-provinces.js"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.1109.0"
+    "@aws-sdk/client-dynamodb": "^3.1109.0",
+    "@aws-sdk/lib-dynamodb": "^3.1109.0"
   }
 }
