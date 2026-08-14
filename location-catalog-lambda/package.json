@@ -9,6 +9,7 @@
   },
   "scripts": {
     "test": "node --test",
+    "test:load": "node scripts/load-runner.js",
     "dynamodb:migrate": "node infra/dynamodb/runners/migrate.js",
     "dynamodb:verify": "node infra/dynamodb/runners/verify.js",
     "dynamodb:import:provinces": "node infra/dynamodb/runners/import-provinces.js"
