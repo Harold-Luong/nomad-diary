@@ -103,4 +103,25 @@ describe('trip stop and review schemas', () => {
       ],
     }).success).toBe(false)
   })
+
+  test('accepts a catalog location without a pre-existing backend province', () => {
+    const result = tripStopSchema.parse({
+      place: {
+        catalogPlaceId: 'catalog-ba-den',
+        countryCode: 'VN',
+        provinceCode: '70',
+        provinceName: 'Tây Ninh',
+        wardCode: '25180',
+        wardName: 'Phường Bình Minh',
+        name: 'Núi Bà Đen',
+        address: null,
+        latitude: null,
+        longitude: null,
+      },
+    })
+
+    expect(result.place.provinceCode).toBe('70')
+    expect(result.place.wardCode).toBe('25180')
+    expect(result.arrivedAt).toBe(null)
+  })
 })

@@ -757,7 +757,8 @@ textarea:focus {
 }
 
 .image-upload-field small,
-.travel-form label>small {
+.travel-form label>small,
+.stop-form label>small {
     color: var(--muted);
     font-size: .75rem;
     font-weight: 400;
