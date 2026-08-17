@@ -582,6 +582,17 @@ GET /provinces/1/places?visited=true&page=1&pageSize=20
 Query của endpoint địa điểm gồm `page`, `pageSize`, `search` và `visited=true|false`.
 Nếu không truyền `visited`, API trả cả địa điểm đã ghé và chưa ghé trong tỉnh.
 
+Combobox tạo trip stop dùng endpoint riêng để đọc lịch sử của user theo mã Location Catalog:
+
+```text
+GET /places?provinceCode=70&wardCode=25180&wardName=Phường%20Bình%20Minh&pageSize=100
+```
+
+Endpoint này chỉ trả các place đã xuất hiện trong trip stop đang hoạt động của user hiện tại.
+`wardName` giúp trả cả dữ liệu cũ được tạo trước khi hệ thống lưu `ward_code`.
+Frontend hợp nhất kết quả này với gợi ý place từ Location Catalog theo
+`catalogPlaceId`, không gộp chỉ vì hai địa điểm trùng tên.
+
 Response tracking tỉnh:
 
 ```json
@@ -627,8 +638,14 @@ Response địa điểm trong tỉnh bổ sung các trường tracking:
 
 ### Trip Stops API
 
-`placeId` tham chiếu một địa điểm đã tồn tại trong bảng `places`. Một trip có
-thể ghé cùng một place nhiều lần, nhưng `visitOrder` đang hoạt động phải duy
+Client gửi `placeId` khi chọn một địa điểm từ lịch sử backend. Khi chọn gợi ý
+Location Catalog hoặc nhập tên mới, client gửi object `place` gồm mã/tên tỉnh,
+phường/xã và địa điểm. Backend tạo province/place còn thiếu rồi tạo trip stop
+trong cùng transaction; metadata của bản ghi dùng chung đã tồn tại không bị
+payload client ghi đè. Địa điểm catalog được định danh bằng `catalogPlaceId`,
+còn địa điểm tự nhập được tái sử dụng theo tên trong cùng phường/xã. Production
+không cần seed dữ liệu location trước. Một trip
+có thể ghé cùng một place nhiều lần, nhưng `visitOrder` đang hoạt động phải duy
 nhất trong trip.
 
 | Method | Endpoint | Mô tả |
@@ -643,13 +660,30 @@ Tạo điểm dừng:
 
 ```json
 {
-  "placeId": "1",
+  "place": {
+    "catalogPlaceId": "catalog-ba-den",
+    "countryCode": "VN",
+    "provinceCode": "70",
+    "provinceName": "Tây Ninh",
+    "wardCode": "25180",
+    "wardName": "Phường Bình Minh",
+    "name": "Núi Bà Đen",
+    "address": null,
+    "latitude": null,
+    "longitude": null
+  },
   "visitOrder": 1,
   "arrivedAt": "2026-08-20T08:00:00+07:00",
   "departedAt": "2026-08-20T10:30:00+07:00",
   "title": "Buổi sáng ở hồ",
   "note": "Nên đến trước 7 giờ"
 }
+```
+
+Nếu chọn một địa điểm đã có trong lịch sử backend, thay object `place` bằng:
+
+```json
+{ "placeId": "25" }
 ```
 
 Nếu không truyền `visitOrder`, API tự thêm điểm dừng vào cuối danh sách.

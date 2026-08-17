@@ -35,3 +35,40 @@ test("trip stop timestamps reject a departedAt value before arrivedAt", () => {
     assert.equal(result.success, false);
     assert.deepEqual(result.error.issues[0].path, ["departedAt"]);
 });
+
+test("trip stops accept a complete location when PostgreSQL has no place yet", () => {
+    const location = {
+        catalogPlaceId: "catalog-ba-den",
+        countryCode: "vn",
+        provinceCode: "70",
+        provinceName: "Tây Ninh",
+        wardCode: "25180",
+        wardName: "Phường Bình Minh",
+        name: "Núi Bà Đen",
+        address: null,
+        latitude: null,
+        longitude: null,
+    };
+    const result = createTripStopSchema.parse({ place: location });
+
+    assert.equal(result.place.countryCode, "VN");
+    assert.equal(result.place.provinceCode, "70");
+    assert.equal(result.place.wardCode, "25180");
+    assert.equal(result.place.name, "Núi Bà Đen");
+});
+
+test("trip stops require exactly one location source", () => {
+    const place = {
+        provinceCode: "70",
+        provinceName: "Tây Ninh",
+        wardCode: "25180",
+        wardName: "Phường Bình Minh",
+        name: "Núi Bà Đen",
+    };
+
+    assert.equal(createTripStopSchema.safeParse({}).success, false);
+    assert.equal(
+        createTripStopSchema.safeParse({ placeId: "1", place }).success,
+        false,
+    );
+});
