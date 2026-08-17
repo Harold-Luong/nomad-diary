@@ -14,6 +14,20 @@ test("shared ID schema accepts only positive integer strings", () => {
 
 test("PostgreSQL unique violations use one shared classifier", () => {
     assert.equal(isUniqueViolation({ code: "23505" }), true);
+    assert.equal(
+        isUniqueViolation(
+            { code: "23505", constraint: "uk_trip_stops_trip_order_active" },
+            "uk_trip_stops_trip_order_active",
+        ),
+        true,
+    );
+    assert.equal(
+        isUniqueViolation(
+            { code: "23505", constraint: "uk_places_catalog_active" },
+            "uk_trip_stops_trip_order_active",
+        ),
+        false,
+    );
     assert.equal(isUniqueViolation({ code: "23503" }), false);
     assert.equal(isUniqueViolation(null), false);
 });
