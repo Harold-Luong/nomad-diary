@@ -24,12 +24,30 @@ function toTripStopDto(stop) {
             name: stop.place_name,
             slug: stop.place_slug,
             provinceId: stop.province_id,
+            countryCode: stop.country_code,
             provinceName: stop.province_name,
             provinceCode: stop.province_code,
+            wardCode: stop.ward_code,
+            wardName: stop.ward_name,
+            address: stop.place_address,
+            latitude: stop.place_latitude,
+            longitude: stop.place_longitude,
+            catalogPlaceId: stop.catalog_place_id,
         },
         createdAt: stop.created_at,
         updatedAt: stop.updated_at,
     };
+}
+
+function toSlug(value) {
+    return value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/đ/g, "d")
+        .replace(/Đ/g, "D")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
 }
 
 function asTime(value) {
@@ -81,6 +99,41 @@ async function ensureActivePlace(placeId, executor) {
     if (!place) {
         throw new NotFoundError(...errorArgs(ERRORS.PLACE_NOT_FOUND));
     }
+}
+
+async function resolvePlaceId(data, executor) {
+    if (data.placeId) {
+        await ensureActivePlace(data.placeId, executor);
+        return data.placeId;
+    }
+
+    const province = await tripStopsRepository.upsertProvince(
+        {
+            ...data.place,
+            provinceSlug: toSlug(data.place.provinceName),
+        },
+        executor,
+    );
+    const placeData = {
+        ...data.place,
+        provinceId: province.id,
+        slug: toSlug(data.place.name),
+        address: data.place.address ?? null,
+        catalogPlaceId: data.place.catalogPlaceId ?? null,
+        latitude: data.place.latitude ?? null,
+        longitude: data.place.longitude ?? null,
+    };
+    const catalogPlace = await tripStopsRepository.findCatalogPlace(
+        placeData,
+        executor,
+    );
+    const legacyPlace = catalogPlace
+        ? null
+        : await tripStopsRepository.findLegacyPlace(placeData, executor);
+    const place = catalogPlace ?? legacyPlace ??
+        await tripStopsRepository.upsertPlace(placeData, executor);
+
+    return String(place.id);
 }
 
 async function ensureVisitOrderAvailable(
@@ -156,7 +209,7 @@ export async function createTripStop(tripId, userId, data) {
                 throw new NotFoundError(...errorArgs(ERRORS.TRIP_NOT_FOUND));
             }
 
-            await ensureActivePlace(data.placeId, client);
+            const placeId = await resolvePlaceId(data, client);
             const visitOrder =
                 data.visitOrder ??
                 (await tripStopsRepository.getNextVisitOrder(tripId, client));
@@ -170,14 +223,14 @@ export async function createTripStop(tripId, userId, data) {
             await ensureVisitOrderAvailable(tripId, visitOrder, undefined, client);
             const created = await tripStopsRepository.create(
                 tripId,
-                { ...data, visitOrder },
+                { ...data, placeId, visitOrder },
                 client,
             );
             const stop = await requireOwnedStop(created.id, userId, client);
             return toTripStopDto(stop);
         });
     } catch (error) {
-        if (isUniqueViolation(error)) {
+        if (isUniqueViolation(error, "uk_trip_stops_trip_order_active")) {
             throw new ConflictError(
                 ...errorArgs(ERRORS.TRIP_STOP_ORDER_EXISTS),
             );
@@ -188,42 +241,52 @@ export async function createTripStop(tripId, userId, data) {
 }
 
 export async function updateTripStop(stopId, userId, data) {
-    const existing = await requireOwnedStop(stopId, userId);
-
-    if (Object.hasOwn(data, "placeId") && data.placeId !== String(existing.place_id)) {
-        await ensureActivePlace(data.placeId);
-    }
-
-    if (
-        Object.hasOwn(data, "visitOrder") &&
-        data.visitOrder !== existing.visit_order
-    ) {
-        await ensureVisitOrderAvailable(
-            existing.trip_id,
-            data.visitOrder,
-            stopId,
-        );
-    }
-
-    const arrivedAt = Object.hasOwn(data, "arrivedAt")
-        ? data.arrivedAt
-        : existing.arrived_at;
-    const departedAt = Object.hasOwn(data, "departedAt")
-        ? data.departedAt
-        : existing.departed_at;
-    assertStopTimes(arrivedAt, departedAt);
-
     try {
-        const updated = await tripStopsRepository.update(stopId, userId, data);
+        return await withTransaction(async (client) => {
+            const existing = await requireOwnedStop(stopId, userId, client);
+            const updateData = { ...data };
 
-        if (!updated) {
-            throw new NotFoundError(...errorArgs(ERRORS.TRIP_STOP_NOT_FOUND));
-        }
+            if (data.place || Object.hasOwn(data, "placeId")) {
+                updateData.placeId = await resolvePlaceId(data, client);
+                delete updateData.place;
+            }
 
-        const stop = await requireOwnedStop(stopId, userId);
-        return toTripStopDto(stop);
+            if (
+                Object.hasOwn(data, "visitOrder") &&
+                data.visitOrder !== existing.visit_order
+            ) {
+                await ensureVisitOrderAvailable(
+                    existing.trip_id,
+                    data.visitOrder,
+                    stopId,
+                    client,
+                );
+            }
+
+            const arrivedAt = Object.hasOwn(data, "arrivedAt")
+                ? data.arrivedAt
+                : existing.arrived_at;
+            const departedAt = Object.hasOwn(data, "departedAt")
+                ? data.departedAt
+                : existing.departed_at;
+            assertStopTimes(arrivedAt, departedAt);
+
+            const updated = await tripStopsRepository.update(
+                stopId,
+                userId,
+                updateData,
+                client,
+            );
+
+            if (!updated) {
+                throw new NotFoundError(...errorArgs(ERRORS.TRIP_STOP_NOT_FOUND));
+            }
+
+            const stop = await requireOwnedStop(stopId, userId, client);
+            return toTripStopDto(stop);
+        });
     } catch (error) {
-        if (isUniqueViolation(error)) {
+        if (isUniqueViolation(error, "uk_trip_stops_trip_order_active")) {
             throw new ConflictError(
                 ...errorArgs(ERRORS.TRIP_STOP_ORDER_EXISTS),
             );

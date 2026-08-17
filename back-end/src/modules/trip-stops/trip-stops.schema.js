@@ -63,8 +63,24 @@ const timestamp = z
 
 const nullableTimestamp = timestamp.nullable().optional();
 
+const placeInput = z
+    .object({
+        catalogPlaceId: z.string().trim().min(1).max(64).nullable().optional(),
+        countryCode: z.string().trim().length(2).toUpperCase().default("VN"),
+        provinceCode: z.string().trim().min(1).max(50),
+        provinceName: z.string().trim().min(1).max(255),
+        wardCode: z.string().trim().min(1).max(50),
+        wardName: z.string().trim().min(1).max(255),
+        name: z.string().trim().min(1).max(255),
+        address: z.string().trim().min(1).max(2_000).nullable().optional(),
+        latitude: z.number().min(-90).max(90).nullable().optional(),
+        longitude: z.number().min(-180).max(180).nullable().optional(),
+    })
+    .strict();
+
 const stopFields = {
     placeId: positiveIntegerIdSchema,
+    place: placeInput,
     visitOrder,
     arrivedAt: nullableTimestamp,
     departedAt: nullableTimestamp,
@@ -86,13 +102,27 @@ function validateStopTimes(value, context) {
     }
 }
 
+function validatePlaceSelection(value, context, required) {
+    const hasPlaceId = value.placeId !== undefined;
+    const hasPlace = value.place !== undefined;
+
+    if ((required && !hasPlaceId && !hasPlace) || (hasPlaceId && hasPlace)) {
+        context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["place"],
+            message: "Provide exactly one of placeId or place",
+        });
+    }
+}
+
 export const tripIdParamsSchema = z.object({ tripId: positiveIntegerIdSchema });
 
 export const tripStopIdParamsSchema = z.object({ id: positiveIntegerIdSchema });
 
 export const createTripStopSchema = z
     .object({
-        placeId: stopFields.placeId,
+        placeId: stopFields.placeId.optional(),
+        place: stopFields.place.optional(),
         visitOrder: stopFields.visitOrder.optional(),
         arrivedAt: nullableTimestamp.default(null),
         departedAt: nullableTimestamp.default(null),
@@ -100,11 +130,15 @@ export const createTripStopSchema = z
         note: stopFields.note.default(null),
     })
     .strict()
-    .superRefine(validateStopTimes);
+    .superRefine((value, context) => {
+        validatePlaceSelection(value, context, true);
+        validateStopTimes(value, context);
+    });
 
 export const updateTripStopSchema = z
     .object({
         placeId: stopFields.placeId.optional(),
+        place: stopFields.place.optional(),
         visitOrder: stopFields.visitOrder.optional(),
         arrivedAt: nullableTimestamp,
         departedAt: nullableTimestamp,
@@ -115,7 +149,10 @@ export const updateTripStopSchema = z
     .refine((value) => Object.keys(value).length > 0, {
         message: "At least one field is required",
     })
-    .superRefine(validateStopTimes);
+    .superRefine((value, context) => {
+        validatePlaceSelection(value, context, false);
+        validateStopTimes(value, context);
+    });
 
 export const reorderTripStopsSchema = z
     .object({

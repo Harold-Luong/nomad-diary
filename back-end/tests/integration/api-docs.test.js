@@ -55,6 +55,9 @@ test("Swagger exposes an OpenAPI document", async () => {
     assert.ok(document.paths["/provinces/visited"]);
     assert.ok(document.paths["/provinces/{id}"]);
     assert.ok(document.paths["/provinces/{id}/places"]);
+    assert.equal(document.paths["/provinces/{id}/places"].post, undefined);
+    assert.ok(document.paths["/places"]);
+    assert.ok(document.components.schemas.PlaceSelectionInput);
     assert.deepEqual(
         document.components.schemas.LoginInput.required,
         ["identifier", "password"],
