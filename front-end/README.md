@@ -134,8 +134,10 @@ onMounted(() => {
 </script>
 ```
 
-Auth store lưu session trong `sessionStorage`, tự khôi phục khi reload tab và
-đồng bộ access token với HTTP client. Khi private request trả về `401`, HTTP
+Auth store chỉ lưu user và access token trong `localStorage`; refresh token nằm
+trong cookie `HttpOnly`, `Secure`, `SameSite=Strict` do backend quản lý. Khi reload
+hoặc mở lại trình duyệt, frontend khôi phục phiên bằng cookie và đồng bộ access token
+với HTTP client. Khi private request trả về `401`, HTTP
 client gọi refresh token một lần, cập nhật session rồi retry request ban đầu.
 Các request `401` đồng thời dùng chung một refresh promise để tránh xoay token
 nhiều lần. Nếu refresh thất bại, session được xóa và router chuyển về trang

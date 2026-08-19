@@ -10,10 +10,10 @@ const router = createRouter({
     scrollBehavior: () => ({ top: 0 }),
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
     const authStore = useAuthStore()
 
-    if (!authStore.initialized) authStore.initialize()
+    if (!authStore.initialized) await authStore.initialize()
 
     if (to.meta.requiresAuth && !authStore.isAuthenticated) {
         return {

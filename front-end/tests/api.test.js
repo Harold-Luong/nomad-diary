@@ -61,6 +61,21 @@ test('public auth calls do not send a stale bearer token', async () => {
     const [url, options] = fetch.mock.calls[0]
     expect(url).toBe('http://localhost:3000/auth/login')
     expect(options.method).toBe('POST')
+    expect(options.credentials).toBe('include')
+    expect(options.headers.has('Authorization')).toBe(false)
+})
+
+test('refresh uses the HttpOnly cookie without sending a token in the body', async () => {
+    fetch.mockResolvedValueOnce(
+        jsonResponse({ success: true, data: { accessToken: 'new-token' } }),
+    )
+
+    await authApi.refreshToken()
+
+    const [url, options] = fetch.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/auth/refresh-token')
+    expect(options.credentials).toBe('include')
+    expect(options.body).toBeUndefined()
     expect(options.headers.has('Authorization')).toBe(false)
 })
 

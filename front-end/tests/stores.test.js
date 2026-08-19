@@ -19,10 +19,22 @@ function jsonResponse(data, status = 200) {
     })
 }
 
+function createLocalStorage() {
+    const values = new Map()
+
+    return {
+        getItem: (key) => values.get(key) ?? null,
+        setItem: (key, value) => values.set(key, String(value)),
+        removeItem: (key) => values.delete(key),
+        clear: () => values.clear(),
+    }
+}
+
 beforeEach(() => {
     setActivePinia(createPinia())
     clearAccessToken()
     clearUnauthorizedHandler()
+    vi.stubGlobal('window', { localStorage: createLocalStorage() })
     vi.stubGlobal('fetch', vi.fn())
 })
 
@@ -47,6 +59,51 @@ test('auth store applies login session to global HTTP client', async () => {
     expect(store.isAuthenticated).toBe(true)
     expect(store.user.username).toBe('nomad')
     expect(getAccessToken()).toBe('access-token')
+})
+
+test('auth store restores a persisted session after the browser is reopened', () => {
+    window.localStorage.setItem(
+        'nomad-diary.auth-session',
+        JSON.stringify({
+            user: { id: '2', username: 'nomad' },
+            accessToken: 'persisted-access-token',
+            tokenType: 'Bearer',
+            accessTokenExpiresIn: '15m',
+        }),
+    )
+
+    const store = useAuthStore()
+    store.initialize()
+
+    expect(store.isAuthenticated).toBe(true)
+    expect(store.user.username).toBe('nomad')
+    expect(JSON.parse(window.localStorage.getItem('nomad-diary.auth-session')))
+        .not.toHaveProperty('refreshToken')
+    expect(getAccessToken()).toBe('persisted-access-token')
+})
+
+test('auth store restores a session from the HttpOnly refresh cookie', async () => {
+    fetch.mockResolvedValueOnce(
+        jsonResponse({
+            success: true,
+            data: {
+                user: { id: '2', username: 'nomad' },
+                accessToken: 'refreshed-access-token',
+                tokenType: 'Bearer',
+                accessTokenExpiresIn: '15m',
+                refreshTokenExpiresIn: '30d',
+            },
+        }),
+    )
+
+    const store = useAuthStore()
+    await store.initialize()
+
+    expect(store.isAuthenticated).toBe(true)
+    expect(store.user.username).toBe('nomad')
+    expect(getAccessToken()).toBe('refreshed-access-token')
+    expect(fetch.mock.calls[0][0]).toBe('http://localhost:3000/auth/refresh-token')
+    expect(fetch.mock.calls[0][1].credentials).toBe('include')
 })
 
 test('trips store keeps list data and pagination metadata', async () => {

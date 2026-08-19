@@ -3,7 +3,6 @@ import { defineStore } from 'pinia'
 import { authApi } from '@/api/auth.js'
 import {
     AUTH_SCHEME,
-    CLIENT_ERROR_CODE,
     STORAGE_KEY,
 } from '@/constants/app.js'
 import { clearAccessToken, setAccessToken } from '@/services/api.js'
@@ -18,7 +17,7 @@ function readStoredSession() {
     if (typeof window === 'undefined') return null
 
     try {
-        const value = window.sessionStorage.getItem(STORAGE_KEY.AUTH_SESSION)
+        const value = window.localStorage.getItem(STORAGE_KEY.AUTH_SESSION)
         return value ? JSON.parse(value) : null
     } catch {
         return null
@@ -29,7 +28,7 @@ function writeStoredSession(session) {
     if (typeof window === 'undefined') return
 
     try {
-        window.sessionStorage.setItem(STORAGE_KEY.AUTH_SESSION, JSON.stringify(session))
+        window.localStorage.setItem(STORAGE_KEY.AUTH_SESSION, JSON.stringify(session))
     } catch {
         // The store still works in memory if browser storage is unavailable.
     }
@@ -39,7 +38,7 @@ function removeStoredSession() {
     if (typeof window === 'undefined') return
 
     try {
-        window.sessionStorage.removeItem(STORAGE_KEY.AUTH_SESSION)
+        window.localStorage.removeItem(STORAGE_KEY.AUTH_SESSION)
     } catch {
         // Nothing else is required when browser storage is unavailable.
     }
@@ -49,10 +48,8 @@ export const useAuthStore = defineStore('auth', {
     state: () => ({
         user: null,
         accessToken: null,
-        refreshToken: null,
         tokenType: AUTH_SCHEME.BEARER,
         accessTokenExpiresIn: null,
-        refreshTokenExpiresIn: null,
         initialized: false,
         loading: false,
         error: null,
@@ -63,13 +60,18 @@ export const useAuthStore = defineStore('auth', {
     },
 
     actions: {
-        initialize() {
+        async initialize() {
             const session = readStoredSession()
 
             if (session?.accessToken && session?.user) {
                 this.applySession(session)
             } else {
                 clearAccessToken()
+                try {
+                    await this.refreshSession()
+                } catch {
+                    this.clearSession()
+                }
             }
 
             this.initialized = true
@@ -86,28 +88,22 @@ export const useAuthStore = defineStore('auth', {
 
             this.user = session.user ?? this.user
             this.accessToken = session.accessToken
-            this.refreshToken = session.refreshToken
             this.tokenType = session.tokenType || AUTH_SCHEME.BEARER
             this.accessTokenExpiresIn = session.accessTokenExpiresIn ?? null
-            this.refreshTokenExpiresIn = session.refreshTokenExpiresIn ?? null
             setAccessToken(this.accessToken)
             writeStoredSession({
                 user: this.user,
                 accessToken: this.accessToken,
-                refreshToken: this.refreshToken,
                 tokenType: this.tokenType,
                 accessTokenExpiresIn: this.accessTokenExpiresIn,
-                refreshTokenExpiresIn: this.refreshTokenExpiresIn,
             })
         },
 
         clearSession() {
             this.user = null
             this.accessToken = null
-            this.refreshToken = null
             this.tokenType = AUTH_SCHEME.BEARER
             this.accessTokenExpiresIn = null
-            this.refreshTokenExpiresIn = null
             clearAccessToken()
             removeStoredSession()
             this.clearPrivateState()
@@ -130,14 +126,8 @@ export const useAuthStore = defineStore('auth', {
         },
 
         async refreshSession() {
-            if (!this.refreshToken) {
-                const error = new Error('Refresh token is not available')
-                error.code = CLIENT_ERROR_CODE.MISSING_REFRESH_TOKEN
-                throw error
-            }
-
             return this.runAuthRequest(
-                () => authApi.refreshToken(this.refreshToken),
+                () => authApi.refreshToken(),
                 true,
             )
         },
