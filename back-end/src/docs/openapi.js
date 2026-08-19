@@ -131,13 +131,6 @@ const definition = {
                     },
                 },
             },
-            RefreshTokenInput: {
-                type: "object",
-                required: ["refreshToken"],
-                properties: {
-                    refreshToken: { type: "string", description: "Refresh JWT returned by login or register" },
-                },
-            },
             ProfileInput: {
                 type: "object",
                 properties: {
@@ -351,8 +344,8 @@ const definition = {
                     district: { type: "string", nullable: true },
                     ward: { type: "string", nullable: true },
                     address: { type: "string", nullable: true },
-                    latitude: { type: "number", example: 11.9416 },
-                    longitude: { type: "number", example: 108.4383 },
+                    latitude: { type: "number", example: 11.9416, nullable: true },
+                    longitude: { type: "number", example: 108.4383, nullable: true },
                     websiteUrl: { type: "string", format: "uri", nullable: true },
                     mapUrl: { type: "string", format: "uri", nullable: true },
                     visited: { type: "boolean", example: true },
@@ -370,11 +363,32 @@ const definition = {
                     },
                 },
             },
+            PlaceSelectionInput: {
+                type: "object",
+                required: ["provinceCode", "provinceName", "wardCode", "wardName", "name"],
+                additionalProperties: false,
+                properties: {
+                    catalogPlaceId: { type: "string", nullable: true },
+                    countryCode: { type: "string", default: "VN" },
+                    provinceCode: { type: "string", example: "70" },
+                    provinceName: { type: "string", example: "Tây Ninh" },
+                    wardCode: { type: "string", example: "25180" },
+                    wardName: { type: "string", example: "Phường Bình Minh" },
+                    name: { type: "string", example: "Núi Bà Đen" },
+                    address: { type: "string", nullable: true },
+                    latitude: { type: "number", nullable: true },
+                    longitude: { type: "number", nullable: true },
+                },
+            },
             TripStopInput: {
                 type: "object",
-                required: ["placeId"],
+                oneOf: [
+                    { required: ["placeId"] },
+                    { required: ["place"] },
+                ],
                 properties: {
                     placeId: { type: "string", example: "10" },
+                    place: { $ref: "#/components/schemas/PlaceSelectionInput" },
                     visitOrder: { type: "integer", minimum: 1 },
                     arrivedAt: { type: "string", format: "date-time", nullable: true },
                     departedAt: { type: "string", format: "date-time", nullable: true },
@@ -387,6 +401,7 @@ const definition = {
                 minProperties: 1,
                 properties: {
                     placeId: { type: "string", example: "10" },
+                    place: { $ref: "#/components/schemas/PlaceSelectionInput" },
                     visitOrder: { type: "integer", minimum: 1 },
                     arrivedAt: { type: "string", format: "date-time", nullable: true },
                     departedAt: { type: "string", format: "date-time", nullable: true },
@@ -460,7 +475,7 @@ const definition = {
         "/auth/login": {
             post: {
                 tags: ["Authentication"],
-                summary: "Authenticate and receive tokens",
+                summary: "Authenticate, receive an access token, and set the refresh cookie",
                 requestBody: {
                     required: true,
                     content: { "application/json": { schema: { $ref: "#/components/schemas/LoginInput" } } },
@@ -471,11 +486,7 @@ const definition = {
         "/auth/refresh-token": {
             post: {
                 tags: ["Authentication"],
-                summary: "Rotate a refresh token",
-                requestBody: {
-                    required: true,
-                    content: { "application/json": { schema: { $ref: "#/components/schemas/RefreshTokenInput" } } },
-                },
+                summary: "Rotate the HttpOnly refresh-token cookie",
                 responses: { 200: successResponse(), 401: errorResponse("Invalid refresh token") },
             },
         },
@@ -748,6 +759,21 @@ const definition = {
                     { name: "visited", in: "query", schema: { type: "boolean" }, description: "Use true to return only places the caller has visited" },
                 ],
                 responses: { 200: successResponse(), 404: errorResponse("Province not found") },
+            },
+        },
+        "/places": {
+            get: {
+                tags: ["Places"],
+                security: bearer,
+                summary: "List places previously visited by the caller in a province and ward",
+                parameters: [
+                    { name: "provinceCode", in: "query", required: true, schema: { type: "string" } },
+                    { name: "wardCode", in: "query", required: true, schema: { type: "string" } },
+                    { name: "wardName", in: "query", schema: { type: "string" }, description: "Ward name used to include legacy places that predate ward codes" },
+                    { name: "page", in: "query", schema: { type: "integer", default: PAGINATION.DEFAULT_PAGE } },
+                    { name: "pageSize", in: "query", schema: { type: "integer", default: PAGINATION.DEFAULT_PAGE_SIZE, maximum: PAGINATION.MAX_PAGE_SIZE } },
+                ],
+                responses: { 200: successResponse(), 401: errorResponse("Unauthenticated") },
             },
         },
         "/trips/{tripId}/stops": {

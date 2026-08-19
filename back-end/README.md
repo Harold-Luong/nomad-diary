@@ -36,17 +36,20 @@ trình trước khi Node.js khởi động để chọn file cấu hình:
 | `NODE_ENV` | File được đọc | Mục đích |
 | --- | --- | --- |
 | Không khai báo hoặc `development` | `.env.development` | Chạy local |
-| `production` | `.env` | Chạy production |
+| `production` | `.env`, sau đó AWS Secrets Manager | Chạy production |
 
-Giá trị khác như `dev`, `prod`, `test` hoặc `staging` sẽ làm server dừng với lỗi
-cấu hình rõ ràng. File được resolve từ thư mục `back-end`, nên kết quả không phụ
+Chỉ giá trị chính xác `production` mới chọn cấu hình production. Mọi giá trị khác
+như không khai báo, `development`, `dev`, `test` hoặc `staging` đều chọn
+`.env.development`. File được resolve từ thư mục `back-end`, nên kết quả không phụ
 thuộc terminal đang đứng ở thư mục nào. Biến đã được cung cấp từ OS, container
-hoặc PM2 luôn được ưu tiên hơn giá trị cùng tên trong file.
+hoặc PM2 luôn được ưu tiên hơn giá trị cùng tên trong file. Riêng production,
+nhóm biến bí mật được tải từ AWS Secrets Manager sau khi đọc `.env` và sẽ thay
+thế mọi giá trị cùng tên trong file hoặc process.
 
-Trước khi chạy production, tạo `.env` từ `.env.development`, đặt
-`NODE_ENV=production` và thay thông tin PostgreSQL, CORS cùng hai JWT secret bằng
-giá trị thật. `.env` bị Git bỏ qua; không đưa secret production vào
-`.env.development`.
+Trước khi chạy production, tạo `.env` chỉ chứa cấu hình bootstrap và cấu hình
+không bí mật, gồm `PORT`, các tùy chọn database pool/SSL và
+`UPLOAD_MAX_SIZE_MB`. Không lưu database credential, JWT secret, CORS, bucket
+hoặc CloudFront URL trong file này.
 
 ### 1. Tạo database
 
@@ -97,16 +100,37 @@ JWT_REFRESH_EXPIRES_IN=30d
 
 CORS_ORIGIN=http://localhost:5173,http://localhost:3000
 
-AWS_REGION=ap-southeast-1
 AWS_S3_IMAGE_BUCKET=nomad-diary-img
 AWS_CLOUDFRONT_IMAGE_BASE_URL=https://example.cloudfront.net
 UPLOAD_MAX_SIZE_MB=10
 ```
 
-`AWS_REGION` và `AWS_S3_IMAGE_BUCKET` là bắt buộc khi dùng upload. IAM
+`AWS_S3_IMAGE_BUCKET` là bắt buộc khi dùng upload. AWS region được cố định trong
+code là `ap-southeast-1`. IAM
 role/user chạy backend cần quyền `s3:PutObject` cho prefix `users/*` trong bucket.
 `AWS_CLOUDFRONT_IMAGE_BASE_URL` là domain CloudFront dùng để đọc ảnh. Giữ S3
 private và cấp `s3:GetObject` cho CloudFront thông qua Origin Access Control (OAC).
+
+Trong production, secret `ec2-db-env` tại `ap-southeast-1` phải là JSON object
+chứa đủ các key sau:
+
+```text
+DATABASE_HOST
+DATABASE_NAME
+DATABASE_PASSWORD
+DATABASE_USER
+JWT_ACCESS_SECRET
+JWT_REFRESH_SECRET
+JWT_ACCESS_EXPIRES_IN
+JWT_REFRESH_EXPIRES_IN
+CORS_ORIGIN
+AWS_CLOUDFRONT_IMAGE_BASE_URL
+AWS_S3_IMAGE_BUCKET
+```
+
+IAM role chạy backend cần quyền `secretsmanager:GetSecretValue` cho secret này.
+Server chỉ đưa các key trong danh sách trên vào môi trường và sẽ dừng trước khi
+lắng nghe nếu secret không đọc được, JSON sai hoặc thiếu giá trị.
 
 Tạo một secret ngẫu nhiên bằng Node.js:
 
@@ -190,7 +214,9 @@ Authorization: Bearer <accessToken>
 ```
 
 Access token có thời hạn ngắn. Refresh token dùng để tạo cặp token mới và được
-xoay vòng sau mỗi lần gọi `/auth/refresh-token`. Database chỉ lưu SHA-256
+xoay vòng sau mỗi lần gọi `/auth/refresh-token`. Refresh token được gửi bằng
+cookie `HttpOnly`, `Secure`, `SameSite=Strict`, không xuất hiện trong JSON hoặc
+JavaScript phía frontend. Database chỉ lưu SHA-256
 hash của refresh token, không lưu token gốc.
 
 ## Chuẩn response
@@ -308,7 +334,6 @@ Response đăng ký/đăng nhập:
       "updatedAt": "2026-08-02T02:41:16.000Z"
     },
     "accessToken": "eyJhbGciOi...",
-    "refreshToken": "eyJhbGciOi...",
     "tokenType": "Bearer",
     "accessTokenExpiresIn": "15m",
     "refreshTokenExpiresIn": "30d"
@@ -327,10 +352,8 @@ Response đăng ký/đăng nhập:
 
 Refresh token:
 
-```json
-{
-  "refreshToken": "eyJhbGciOi..."
-}
+```http
+Cookie: nomad_diary_refresh_token=<HttpOnly refresh token>
 ```
 
 Cập nhật profile:
@@ -582,6 +605,17 @@ GET /provinces/1/places?visited=true&page=1&pageSize=20
 Query của endpoint địa điểm gồm `page`, `pageSize`, `search` và `visited=true|false`.
 Nếu không truyền `visited`, API trả cả địa điểm đã ghé và chưa ghé trong tỉnh.
 
+Combobox tạo trip stop dùng endpoint riêng để đọc lịch sử của user theo mã Location Catalog:
+
+```text
+GET /places?provinceCode=70&wardCode=25180&wardName=Phường%20Bình%20Minh&pageSize=100
+```
+
+Endpoint này chỉ trả các place đã xuất hiện trong trip stop đang hoạt động của user hiện tại.
+`wardName` giúp trả cả dữ liệu cũ được tạo trước khi hệ thống lưu `ward_code`.
+Frontend hợp nhất kết quả này với gợi ý place từ Location Catalog theo
+`catalogPlaceId`, không gộp chỉ vì hai địa điểm trùng tên.
+
 Response tracking tỉnh:
 
 ```json
@@ -627,8 +661,14 @@ Response địa điểm trong tỉnh bổ sung các trường tracking:
 
 ### Trip Stops API
 
-`placeId` tham chiếu một địa điểm đã tồn tại trong bảng `places`. Một trip có
-thể ghé cùng một place nhiều lần, nhưng `visitOrder` đang hoạt động phải duy
+Client gửi `placeId` khi chọn một địa điểm từ lịch sử backend. Khi chọn gợi ý
+Location Catalog hoặc nhập tên mới, client gửi object `place` gồm mã/tên tỉnh,
+phường/xã và địa điểm. Backend tạo province/place còn thiếu rồi tạo trip stop
+trong cùng transaction; metadata của bản ghi dùng chung đã tồn tại không bị
+payload client ghi đè. Địa điểm catalog được định danh bằng `catalogPlaceId`,
+còn địa điểm tự nhập được tái sử dụng theo tên trong cùng phường/xã. Production
+không cần seed dữ liệu location trước. Một trip
+có thể ghé cùng một place nhiều lần, nhưng `visitOrder` đang hoạt động phải duy
 nhất trong trip.
 
 | Method | Endpoint | Mô tả |
@@ -643,13 +683,30 @@ Tạo điểm dừng:
 
 ```json
 {
-  "placeId": "1",
+  "place": {
+    "catalogPlaceId": "catalog-ba-den",
+    "countryCode": "VN",
+    "provinceCode": "70",
+    "provinceName": "Tây Ninh",
+    "wardCode": "25180",
+    "wardName": "Phường Bình Minh",
+    "name": "Núi Bà Đen",
+    "address": null,
+    "latitude": null,
+    "longitude": null
+  },
   "visitOrder": 1,
   "arrivedAt": "2026-08-20T08:00:00+07:00",
   "departedAt": "2026-08-20T10:30:00+07:00",
   "title": "Buổi sáng ở hồ",
   "note": "Nên đến trước 7 giờ"
 }
+```
+
+Nếu chọn một địa điểm đã có trong lịch sử backend, thay object `place` bằng:
+
+```json
+{ "placeId": "25" }
 ```
 
 Nếu không truyền `visitOrder`, API tự thêm điểm dừng vào cuối danh sách.
@@ -870,18 +927,19 @@ npm.cmd run dev
 ### Cấu hình local hoặc production không được nhận
 
 Khi chạy local, không khai báo `NODE_ENV` hoặc đặt chính xác
-`NODE_ENV=development`; server sẽ đọc `.env.development`. Khi chạy production, tạo
-file `.env` và đặt `NODE_ENV=production` trước khi khởi động server:
+`NODE_ENV=development`; server sẽ đọc `.env.development`. Khi chạy production,
+tạo `.env` với cấu hình bootstrap/không bí mật, bảo đảm IAM role đọc được secret
+`ec2-db-env`, rồi đặt `NODE_ENV=production` trước khi khởi động server:
 
 ```powershell
-Copy-Item .env.development .env
 $env:NODE_ENV = "production"
 npm.cmd start
 ```
 
-Không dùng tên rút gọn `dev` hoặc `prod`. `NODE_ENV` trong file không thể tự chọn
-chính file đó; giá trị từ tiến trình khởi động mới là giá trị quyết định. Sau khi
-sửa cấu hình, phải khởi động lại server.
+Chỉ `NODE_ENV=production` mới đọc `.env` và Secrets Manager. Tên khác, kể cả
+`dev`, `prod`, `test` hoặc `staging`, đều dùng `.env.development`. `NODE_ENV`
+trong file không thể tự chọn chính file đó; giá trị từ tiến trình khởi động mới
+là giá trị quyết định. Sau khi sửa cấu hình, phải khởi động lại server.
 
 ### `CORS_ORIGIN_NOT_ALLOWED`
 

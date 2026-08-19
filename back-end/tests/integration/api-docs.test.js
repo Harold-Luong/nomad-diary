@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 
 import { loadEnvironment } from "../../src/config/load-environment.js";
 
-loadEnvironment("development");
+await loadEnvironment("development");
 
 const { default: app } = await import("../../src/app.js");
 
@@ -45,6 +45,8 @@ test("Swagger exposes an OpenAPI document", async () => {
     assert.equal(document.openapi, "3.0.3");
     assert.equal(document.servers[0].url, "/");
     assert.ok(document.paths["/auth/login"]);
+    assert.equal(document.paths["/auth/refresh-token"].post.requestBody, undefined);
+    assert.equal(document.components.schemas.RefreshTokenInput, undefined);
     assert.ok(document.paths["/trips"]);
     assert.ok(document.paths["/images"]);
     assert.ok(document.paths["/images/{id}"]);
@@ -55,6 +57,9 @@ test("Swagger exposes an OpenAPI document", async () => {
     assert.ok(document.paths["/provinces/visited"]);
     assert.ok(document.paths["/provinces/{id}"]);
     assert.ok(document.paths["/provinces/{id}/places"]);
+    assert.equal(document.paths["/provinces/{id}/places"].post, undefined);
+    assert.ok(document.paths["/places"]);
+    assert.ok(document.components.schemas.PlaceSelectionInput);
     assert.deepEqual(
         document.components.schemas.LoginInput.required,
         ["identifier", "password"],

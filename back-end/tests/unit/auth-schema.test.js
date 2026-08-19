@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
+import { loadEnvironment } from "../../src/config/load-environment.js";
+
+await loadEnvironment("development");
+
+const {
     loginSchema,
     updateProfileSchema,
-} from "../../src/modules/auth/auth.schema.js";
+} = await import("../../src/modules/auth/auth.schema.js");
 
 test("login accepts an identifier", () => {
     const result = loginSchema.parse({

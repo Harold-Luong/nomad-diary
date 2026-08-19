@@ -13,7 +13,14 @@ const stopSelectColumns = `
     ts.updated_at,
     p.name AS place_name,
     p.slug AS place_slug,
+    p.catalog_place_id,
+    p.ward_code,
+    p.ward AS ward_name,
+    p.address AS place_address,
+    p.latitude AS place_latitude,
+    p.longitude AS place_longitude,
     p.province_id,
+    pr.country_code,
     pr.name AS province_name,
     pr.code AS province_code
 `;
@@ -79,6 +86,157 @@ export async function findActivePlace(id, executor = query) {
     );
 
     return result.rows[0] ?? null;
+}
+
+export async function upsertProvince(data, executor = query) {
+    const inserted = await executeQuery(
+        executor,
+        `
+            INSERT INTO provinces (country_code, code, name, slug)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (country_code, code) WHERE is_deleted = false
+            DO NOTHING
+            RETURNING id
+        `,
+        [data.countryCode, data.provinceCode, data.provinceName, data.provinceSlug],
+    );
+
+    if (inserted.rows[0]) {
+        return inserted.rows[0];
+    }
+
+    const existing = await executeQuery(
+        executor,
+        `
+            SELECT id
+            FROM provinces
+            WHERE country_code = $1
+              AND code = $2
+              AND is_deleted = false
+        `,
+        [data.countryCode, data.provinceCode],
+    );
+
+    return existing.rows[0];
+}
+
+export async function findCatalogPlace(data, executor = query) {
+    if (!data.catalogPlaceId) {
+        return null;
+    }
+
+    const result = await executeQuery(
+        executor,
+        `
+            SELECT id
+            FROM places
+            WHERE catalog_place_id = $1
+              AND is_deleted = false
+        `,
+        [data.catalogPlaceId],
+    );
+
+    return result.rows[0] ?? null;
+}
+
+export async function findLegacyPlace(data, executor = query) {
+    if (!data.catalogPlaceId) {
+        return null;
+    }
+
+    const result = await executeQuery(
+        executor,
+        `
+            SELECT id
+            FROM places
+            WHERE province_id = $1
+              AND slug = $2
+              AND ward_code IS NULL
+              AND catalog_place_id IS NULL
+              AND is_deleted = false
+            ORDER BY id
+            LIMIT 1
+        `,
+        [data.provinceId, data.slug],
+    );
+
+    return result.rows[0] ?? null;
+}
+
+export async function upsertPlace(data, executor = query) {
+    const hasCatalogId = Boolean(data.catalogPlaceId);
+    const conflictClause = hasCatalogId
+        ? `
+            ON CONFLICT (catalog_place_id)
+            WHERE is_deleted = false AND catalog_place_id IS NOT NULL
+            DO NOTHING
+        `
+        : `
+            ON CONFLICT (province_id, ward_code, slug)
+            WHERE is_deleted = false
+              AND catalog_place_id IS NULL
+              AND ward_code IS NOT NULL
+            DO NOTHING
+        `;
+    const inserted = await executeQuery(
+        executor,
+        `
+            INSERT INTO places (
+                province_id,
+                name,
+                slug,
+                ward_code,
+                ward,
+                address,
+                catalog_place_id,
+                latitude,
+                longitude
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ${conflictClause}
+            RETURNING id
+        `,
+        [
+            data.provinceId,
+            data.name,
+            data.slug,
+            data.wardCode,
+            data.wardName,
+            data.address,
+            data.catalogPlaceId,
+            data.latitude,
+            data.longitude,
+        ],
+    );
+
+    if (inserted.rows[0]) {
+        return inserted.rows[0];
+    }
+
+    const existing = await executeQuery(
+        executor,
+        hasCatalogId
+            ? `
+                SELECT id
+                FROM places
+                WHERE catalog_place_id = $1
+                  AND is_deleted = false
+            `
+            : `
+                SELECT id
+                FROM places
+                WHERE province_id = $1
+                  AND ward_code = $2
+                  AND slug = $3
+                  AND catalog_place_id IS NULL
+                  AND is_deleted = false
+            `,
+        hasCatalogId
+            ? [data.catalogPlaceId]
+            : [data.provinceId, data.wardCode, data.slug],
+    );
+
+    return existing.rows[0];
 }
 
 export async function listForTrip(tripId, userId, executor = query) {

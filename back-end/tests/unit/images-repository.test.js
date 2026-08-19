@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
+import { loadEnvironment } from "../../src/config/load-environment.js";
+
+await loadEnvironment("development");
+
+const {
     create,
     listForUser,
-} from "../../src/modules/images/images.repository.js";
+} = await import("../../src/modules/images/images.repository.js");
 
 test("image lists scope every filter to active trips owned by the user", async () => {
     const calls = [];
