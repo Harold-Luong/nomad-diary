@@ -9,7 +9,6 @@ import {
   REVISIT_STATUS_VALUES,
   ROUTE_NAME,
   ROUTE_PATH,
-  STORAGE_KEY,
   TRIP_STATUS,
   TRIP_STATUS_LABEL,
   TRIP_STATUS_OPTIONS,
@@ -38,11 +37,10 @@ describe('shared constants', () => {
     expect(VISIT_ORDER).toEqual({ MIN: 1, MAX: 2_147_483_647 })
   })
 
-  test('route, storage, auth and pagination values remain stable', () => {
+  test('route, auth and pagination values remain stable', () => {
     expect(ROUTE_NAME.TRIP_DETAIL).toBe('trip-detail')
     expect(ROUTE_PATH.TRIP_DETAIL).toBe('/trips/:id')
     expect(ROUTE_PATH.TRIP_IMAGES).toBe('/trips/:id/images')
-    expect(STORAGE_KEY.AUTH_SESSION).toBe('nomad-diary.auth-session')
     expect(AUTH_SCHEME.BEARER).toBe('Bearer')
     expect(PAGINATION.DEFAULT_PAGE_SIZE).toBe(20)
     expect(PAGINATION.MAX_PAGE_SIZE).toBe(100)

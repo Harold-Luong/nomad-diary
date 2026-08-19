@@ -19,22 +19,22 @@ function jsonResponse(data, status = 200) {
     })
 }
 
-function createLocalStorage() {
-    const values = new Map()
-
-    return {
-        getItem: (key) => values.get(key) ?? null,
-        setItem: (key, value) => values.set(key, String(value)),
-        removeItem: (key) => values.delete(key),
-        clear: () => values.clear(),
-    }
-}
-
 beforeEach(() => {
     setActivePinia(createPinia())
     clearAccessToken()
     clearUnauthorizedHandler()
-    vi.stubGlobal('window', { localStorage: createLocalStorage() })
+    vi.stubGlobal('window', {
+        localStorage: {
+            getItem: vi.fn(),
+            setItem: vi.fn(),
+            removeItem: vi.fn(),
+        },
+        sessionStorage: {
+            getItem: vi.fn(),
+            setItem: vi.fn(),
+            removeItem: vi.fn(),
+        },
+    })
     vi.stubGlobal('fetch', vi.fn())
 })
 
@@ -45,7 +45,6 @@ test('auth store applies login session to global HTTP client', async () => {
             data: {
                 user: { id: '2', username: 'nomad' },
                 accessToken: 'access-token',
-                refreshToken: 'refresh-token',
                 tokenType: 'Bearer',
                 accessTokenExpiresIn: '15m',
                 refreshTokenExpiresIn: '30d',
@@ -59,27 +58,7 @@ test('auth store applies login session to global HTTP client', async () => {
     expect(store.isAuthenticated).toBe(true)
     expect(store.user.username).toBe('nomad')
     expect(getAccessToken()).toBe('access-token')
-})
-
-test('auth store restores a persisted session after the browser is reopened', () => {
-    window.localStorage.setItem(
-        'nomad-diary.auth-session',
-        JSON.stringify({
-            user: { id: '2', username: 'nomad' },
-            accessToken: 'persisted-access-token',
-            tokenType: 'Bearer',
-            accessTokenExpiresIn: '15m',
-        }),
-    )
-
-    const store = useAuthStore()
-    store.initialize()
-
-    expect(store.isAuthenticated).toBe(true)
-    expect(store.user.username).toBe('nomad')
-    expect(JSON.parse(window.localStorage.getItem('nomad-diary.auth-session')))
-        .not.toHaveProperty('refreshToken')
-    expect(getAccessToken()).toBe('persisted-access-token')
+    expect(window.localStorage.setItem).not.toHaveBeenCalled()
 })
 
 test('auth store restores a session from the HttpOnly refresh cookie', async () => {
@@ -104,6 +83,12 @@ test('auth store restores a session from the HttpOnly refresh cookie', async () 
     expect(getAccessToken()).toBe('refreshed-access-token')
     expect(fetch.mock.calls[0][0]).toBe('http://localhost:3000/auth/refresh-token')
     expect(fetch.mock.calls[0][1].credentials).toBe('include')
+    expect(window.localStorage.removeItem).toHaveBeenCalledWith(
+        'nomad-diary.auth-session',
+    )
+    expect(window.sessionStorage.removeItem).toHaveBeenCalledWith(
+        'nomad-diary.auth-session',
+    )
 })
 
 test('trips store keeps list data and pagination metadata', async () => {
@@ -176,7 +161,6 @@ test('clearing auth session also clears private domain state', () => {
     authStore.applySession({
         user: { id: '2', username: 'nomad' },
         accessToken: 'access-token',
-        refreshToken: 'refresh-token',
     })
     tripsStore.items = [{ id: '7' }]
     stopsStore.byTripId = { 7: [{ id: '1' }] }
