@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { upsertForOwnedStop } from "../../src/modules/reviews/reviews.repository.js";
+import { loadEnvironment } from "../../src/config/load-environment.js";
+
+await loadEnvironment("development");
+
+const { upsertForOwnedStop } = await import("../../src/modules/reviews/reviews.repository.js");
 
 const reviewData = {
     rating: 5,
