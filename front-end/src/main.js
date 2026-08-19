@@ -11,7 +11,7 @@ const pinia = createPinia()
 
 app.use(pinia)
 const authStore = useAuthStore(pinia)
-authStore.initialize()
+await authStore.initialize()
 configureAuthSessionRecovery(authStore, router)
 app.use(router)
 app.mount('#app')
