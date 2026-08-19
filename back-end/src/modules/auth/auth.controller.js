@@ -2,6 +2,11 @@ import { asyncHandler } from "../../shared/http/async-handler.js";
 import { getAuthenticatedUserId } from "../../shared/http/auth-context.js";
 import { sendNoContent, sendSuccess } from "../../shared/http/response.js";
 import * as authService from "./auth.service.js";
+import {
+    clearRefreshTokenCookie,
+    readRefreshTokenCookie,
+    setRefreshTokenCookie,
+} from "./auth-cookie.js";
 
 function getRequestInfo(req) {
     return {
@@ -10,23 +15,33 @@ function getRequestInfo(req) {
     };
 }
 
+function sendSession(res, result, options) {
+    const { refreshToken, refreshTokenExpiresAt, ...publicSession } = result;
+    setRefreshTokenCookie(res, refreshToken, refreshTokenExpiresAt);
+    return sendSuccess(res, publicSession, options);
+}
+
 export const register = asyncHandler(async (req, res) => {
     const result = await authService.register(req.body, getRequestInfo(req));
-    return sendSuccess(res, result, { status: 201 });
+    return sendSession(res, result, { status: 201 });
 });
 
 export const login = asyncHandler(async (req, res) => {
     const result = await authService.login(req.body, getRequestInfo(req));
-    return sendSuccess(res, result);
+    return sendSession(res, result);
 });
 
 export const refreshToken = asyncHandler(async (req, res) => {
-    const result = await authService.refreshSession(req.body.refreshToken, getRequestInfo(req));
-    return sendSuccess(res, result);
+    const result = await authService.refreshSession(
+        readRefreshTokenCookie(req),
+        getRequestInfo(req),
+    );
+    return sendSession(res, result);
 });
 
 export const logout = asyncHandler(async (req, res) => {
     await authService.logout(getAuthenticatedUserId(req), req.auth.sessionId);
+    clearRefreshTokenCookie(res);
     return sendNoContent(res);
 });
 
@@ -47,10 +62,11 @@ export const changePassword = asyncHandler(async (req, res) => {
         getRequestInfo(req),
     );
 
-    return sendSuccess(res, result);
+    return sendSession(res, result);
 });
 
 export const deleteAccount = asyncHandler(async (req, res) => {
     await authService.deleteCurrentUser(getAuthenticatedUserId(req), req.body.password);
+    clearRefreshTokenCookie(res);
     return sendNoContent(res);
 });

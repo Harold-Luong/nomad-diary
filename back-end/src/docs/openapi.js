@@ -131,13 +131,6 @@ const definition = {
                     },
                 },
             },
-            RefreshTokenInput: {
-                type: "object",
-                required: ["refreshToken"],
-                properties: {
-                    refreshToken: { type: "string", description: "Refresh JWT returned by login or register" },
-                },
-            },
             ProfileInput: {
                 type: "object",
                 properties: {
@@ -482,7 +475,7 @@ const definition = {
         "/auth/login": {
             post: {
                 tags: ["Authentication"],
-                summary: "Authenticate and receive tokens",
+                summary: "Authenticate, receive an access token, and set the refresh cookie",
                 requestBody: {
                     required: true,
                     content: { "application/json": { schema: { $ref: "#/components/schemas/LoginInput" } } },
@@ -493,11 +486,7 @@ const definition = {
         "/auth/refresh-token": {
             post: {
                 tags: ["Authentication"],
-                summary: "Rotate a refresh token",
-                requestBody: {
-                    required: true,
-                    content: { "application/json": { schema: { $ref: "#/components/schemas/RefreshTokenInput" } } },
-                },
+                summary: "Rotate the HttpOnly refresh-token cookie",
                 responses: { 200: successResponse(), 401: errorResponse("Invalid refresh token") },
             },
         },

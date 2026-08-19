@@ -69,12 +69,6 @@ export const loginSchema = z
         password,
     }));
 
-export const refreshTokenSchema = z
-    .object({
-        refreshToken: z.string().trim().min(1, "Refresh token is required").max(4096),
-    })
-    .strict();
-
 export const updateProfileSchema = z
     .object({
         displayName: optionalDisplayNameSchema.optional(),
