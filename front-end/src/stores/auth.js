@@ -1,10 +1,7 @@
 import { defineStore } from 'pinia'
 
 import { authApi } from '@/api/auth.js'
-import {
-    AUTH_SCHEME,
-    STORAGE_KEY,
-} from '@/constants/app.js'
+import { AUTH_SCHEME } from '@/constants/app.js'
 import { clearAccessToken, setAccessToken } from '@/services/api.js'
 import { runStoreRequest } from './request.js'
 import { useReviewsStore } from './reviews.js'
@@ -13,34 +10,17 @@ import { useProvincesStore } from './provinces.js'
 import { useTripsStore } from './trips.js'
 import { useTripStopsStore } from './trip-stops.js'
 
-function readStoredSession() {
-    if (typeof window === 'undefined') return null
+const LEGACY_AUTH_STORAGE_KEY = 'nomad-diary.auth-session'
 
-    try {
-        const value = window.localStorage.getItem(STORAGE_KEY.AUTH_SESSION)
-        return value ? JSON.parse(value) : null
-    } catch {
-        return null
-    }
-}
-
-function writeStoredSession(session) {
+function removeLegacyStoredSession() {
     if (typeof window === 'undefined') return
 
-    try {
-        window.localStorage.setItem(STORAGE_KEY.AUTH_SESSION, JSON.stringify(session))
-    } catch {
-        // The store still works in memory if browser storage is unavailable.
-    }
-}
-
-function removeStoredSession() {
-    if (typeof window === 'undefined') return
-
-    try {
-        window.localStorage.removeItem(STORAGE_KEY.AUTH_SESSION)
-    } catch {
-        // Nothing else is required when browser storage is unavailable.
+    for (const storage of [window.localStorage, window.sessionStorage]) {
+        try {
+            storage?.removeItem(LEGACY_AUTH_STORAGE_KEY)
+        } catch {
+            // Storage can be unavailable under restrictive browser policies.
+        }
     }
 }
 
@@ -53,6 +33,7 @@ export const useAuthStore = defineStore('auth', {
         initialized: false,
         loading: false,
         error: null,
+        sessionPublisher: null,
     }),
 
     getters: {
@@ -60,24 +41,44 @@ export const useAuthStore = defineStore('auth', {
     },
 
     actions: {
-        async initialize() {
-            const session = readStoredSession()
+        async initialize({ requestPeerSession, withRefreshLock } = {}) {
+            removeLegacyStoredSession()
+            clearAccessToken()
 
-            if (session?.accessToken && session?.user) {
-                this.applySession(session)
-            } else {
-                clearAccessToken()
-                try {
-                    await this.refreshSession()
-                } catch {
-                    this.clearSession()
+            try {
+                const restoreSession = async () => {
+                    await requestPeerSession?.()
+                    if (!this.isAuthenticated) await this.refreshSession()
                 }
+
+                if (withRefreshLock) {
+                    await withRefreshLock(restoreSession)
+                } else {
+                    await restoreSession()
+                }
+            } catch {
+                this.clearSession()
             }
 
             this.initialized = true
         },
 
-        applySession(session) {
+        configureSessionPublisher(publisher) {
+            this.sessionPublisher = typeof publisher === 'function' ? publisher : null
+        },
+
+        getSessionSnapshot() {
+            if (!this.isAuthenticated) return null
+
+            return {
+                user: this.user,
+                accessToken: this.accessToken,
+                tokenType: this.tokenType,
+                accessTokenExpiresIn: this.accessTokenExpiresIn,
+            }
+        },
+
+        applySession(session, { broadcast = true } = {}) {
             if (
                 this.user?.id &&
                 session.user?.id &&
@@ -91,22 +92,17 @@ export const useAuthStore = defineStore('auth', {
             this.tokenType = session.tokenType || AUTH_SCHEME.BEARER
             this.accessTokenExpiresIn = session.accessTokenExpiresIn ?? null
             setAccessToken(this.accessToken)
-            writeStoredSession({
-                user: this.user,
-                accessToken: this.accessToken,
-                tokenType: this.tokenType,
-                accessTokenExpiresIn: this.accessTokenExpiresIn,
-            })
+            if (broadcast) this.sessionPublisher?.('session', this.getSessionSnapshot())
         },
 
-        clearSession() {
+        clearSession({ broadcast = true } = {}) {
             this.user = null
             this.accessToken = null
             this.tokenType = AUTH_SCHEME.BEARER
             this.accessTokenExpiresIn = null
             clearAccessToken()
-            removeStoredSession()
             this.clearPrivateState()
+            if (broadcast) this.sessionPublisher?.('clear')
         },
 
         clearPrivateState() {

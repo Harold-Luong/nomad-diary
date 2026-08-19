@@ -44,12 +44,14 @@ async function submit() {
                 <form class="form-card auth-form" @submit.prevent="submit">
                     <label>
                         Email hoặc username
-                        <input v-model.trim="form.identifier" required autocomplete="username" placeholder="nomad@example.com" />
+                        <input v-model.trim="form.identifier" required autocomplete="username"
+                            placeholder="nomad@example.com" />
                         <span v-if="errorFor('identifier')" class="field-error">{{ errorFor('identifier') }}</span>
                     </label>
                     <label>
                         Mật khẩu
-                        <input v-model="form.password" required type="password" autocomplete="current-password" placeholder="••••••••" />
+                        <input v-model="form.password" required type="password" autocomplete="current-password"
+                            placeholder="••••••••" />
                         <span v-if="errorFor('password')" class="field-error">{{ errorFor('password') }}</span>
                     </label>
                     <p v-if="error" class="form-error">{{ error.message }}</p>
@@ -58,8 +60,12 @@ async function submit() {
                     </button>
                 </form>
 
-                <p class="form-footer">Chưa có cuốn sổ riêng? <RouterLink :to="{ name: ROUTE_NAME.REGISTER }">Bắt đầu lên đường</RouterLink></p>
+                <p class="form-footer">Chưa có cuốn sổ riêng? <RouterLink :to="{ name: ROUTE_NAME.REGISTER }">Bắt đầu
+                        lên đường</RouterLink>
+                </p>
             </div>
+
+            <small>© 2024 Nomad Diary. All rights reserved. Version 1.0</small>
         </section>
     </main>
 </template>

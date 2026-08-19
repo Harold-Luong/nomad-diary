@@ -1,7 +1,3 @@
-export const STORAGE_KEY = Object.freeze({
-    AUTH_SESSION: 'nomad-diary.auth-session',
-})
-
 export const AUTH_SCHEME = Object.freeze({
     BEARER: 'Bearer',
 })
