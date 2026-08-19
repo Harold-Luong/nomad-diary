@@ -8,7 +8,6 @@ import {
     changePasswordSchema,
     deleteAccountSchema,
     loginSchema,
-    refreshTokenSchema,
     registerSchema,
     updateProfileSchema,
 } from "./auth.schema.js";
@@ -20,7 +19,6 @@ router.post("/login", authRateLimiter, validate(loginSchema), authController.log
 router.post(
     "/refresh-token",
     authRateLimiter,
-    validate(refreshTokenSchema),
     authController.refreshToken,
 );
 router.post("/logout", authenticate, authController.logout);

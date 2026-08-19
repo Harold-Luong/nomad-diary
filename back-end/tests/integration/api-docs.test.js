@@ -45,6 +45,8 @@ test("Swagger exposes an OpenAPI document", async () => {
     assert.equal(document.openapi, "3.0.3");
     assert.equal(document.servers[0].url, "/");
     assert.ok(document.paths["/auth/login"]);
+    assert.equal(document.paths["/auth/refresh-token"].post.requestBody, undefined);
+    assert.equal(document.components.schemas.RefreshTokenInput, undefined);
     assert.ok(document.paths["/trips"]);
     assert.ok(document.paths["/images"]);
     assert.ok(document.paths["/images/{id}"]);

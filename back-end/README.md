@@ -214,7 +214,9 @@ Authorization: Bearer <accessToken>
 ```
 
 Access token có thời hạn ngắn. Refresh token dùng để tạo cặp token mới và được
-xoay vòng sau mỗi lần gọi `/auth/refresh-token`. Database chỉ lưu SHA-256
+xoay vòng sau mỗi lần gọi `/auth/refresh-token`. Refresh token được gửi bằng
+cookie `HttpOnly`, `Secure`, `SameSite=Strict`, không xuất hiện trong JSON hoặc
+JavaScript phía frontend. Database chỉ lưu SHA-256
 hash của refresh token, không lưu token gốc.
 
 ## Chuẩn response
@@ -332,7 +334,6 @@ Response đăng ký/đăng nhập:
       "updatedAt": "2026-08-02T02:41:16.000Z"
     },
     "accessToken": "eyJhbGciOi...",
-    "refreshToken": "eyJhbGciOi...",
     "tokenType": "Bearer",
     "accessTokenExpiresIn": "15m",
     "refreshTokenExpiresIn": "30d"
@@ -351,10 +352,8 @@ Response đăng ký/đăng nhập:
 
 Refresh token:
 
-```json
-{
-  "refreshToken": "eyJhbGciOi..."
-}
+```http
+Cookie: nomad_diary_refresh_token=<HttpOnly refresh token>
 ```
 
 Cập nhật profile:
