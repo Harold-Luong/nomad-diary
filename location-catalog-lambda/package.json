@@ -1,0 +1,14 @@
+{
+  "name": "location-catalog-lambda",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vietnam Location Catalog API on AWS",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1109.0",
+    "@aws-sdk/lib-dynamodb": "^3.1109.0"
+  }
+}

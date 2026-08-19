@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 package-lock.json
+!location-catalog-lambda/package-lock.json
 
 # Environment variables and local overrides
 .env
