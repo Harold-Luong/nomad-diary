@@ -191,6 +191,7 @@ async function issueSessionTokens(user, requestInfo, executor) {
         user: await toPublicUser(user),
         accessToken: signAccessToken(user.id, sessionId),
         refreshToken,
+        refreshTokenExpiresAt: getTokenExpiry(refreshToken),
         tokenType: AUTH_SCHEME.BEARER,
         accessTokenExpiresIn: env.jwtAccessExpiresIn,
         refreshTokenExpiresIn: env.jwtRefreshExpiresIn,
