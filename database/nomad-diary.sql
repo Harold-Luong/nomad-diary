@@ -122,10 +122,12 @@ CREATE TABLE places (
     slug varchar(255) NOT NULL,
     description text,
     district varchar(255),
+    ward_code varchar(50),
     ward varchar(255),
     address text,
-    latitude double precision NOT NULL,
-    longitude double precision NOT NULL,
+    catalog_place_id varchar(64),
+    latitude double precision,
+    longitude double precision,
     website_url text,
     map_url text,
     is_deleted boolean NOT NULL DEFAULT false,
@@ -138,17 +140,30 @@ CREATE TABLE places (
     )
 );
 
--- Cho phép hai tỉnh có địa điểm cùng slug nhưng trong một tỉnh
--- thì slug của địa điểm đang hoạt động phải duy nhất.
-CREATE UNIQUE INDEX uk_places_province_slug_active ON places (province_id, slug)
+-- Location Catalog cung cấp định danh ổn định cho địa điểm chuẩn. Địa điểm
+-- người dùng tự nhập chỉ được gộp theo tên trong cùng một phường/xã.
+CREATE UNIQUE INDEX uk_places_catalog_active
+ON places (catalog_place_id)
 WHERE
-    is_deleted = false;
+    is_deleted = false
+    AND catalog_place_id IS NOT NULL;
+
+CREATE UNIQUE INDEX uk_places_custom_ward_slug_active
+ON places (province_id, ward_code, slug)
+WHERE
+    is_deleted = false
+    AND catalog_place_id IS NULL
+    AND ward_code IS NOT NULL;
 
 CREATE INDEX idx_places_province ON places (province_id)
 WHERE
     is_deleted = false;
 
 CREATE INDEX idx_places_name ON places (lower(name))
+WHERE
+    is_deleted = false;
+
+CREATE INDEX idx_places_province_ward ON places (province_id, ward_code)
 WHERE
     is_deleted = false;
 
