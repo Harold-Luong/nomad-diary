@@ -1,5 +1,6 @@
 export * from './date.js'
 export * from './error.js'
 export * from './number.js'
+export * from './places.js'
 export * from './string.js'
 export * from './validation.js'

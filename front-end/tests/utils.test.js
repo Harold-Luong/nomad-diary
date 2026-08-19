@@ -9,6 +9,8 @@ import {
   formatDate,
   formatNumber,
   isValidDate,
+  mergePlaceOptions,
+  normalizePlaceName,
   slugify,
   toDateInputValue,
   toInteger,
@@ -43,6 +45,53 @@ describe('number and string utilities', () => {
     expect(slugify('Đà Lạt mùa Hè 2026')).toBe('da-lat-mua-he-2026')
     expect(truncate('Nomad Diary', 8)).toBe('Nomad D…')
     expect(truncate('Nomad', 0)).toBe('')
+  })
+})
+
+describe('place utilities', () => {
+  test('merges places only by catalog identity and keeps same-name locations distinct', () => {
+    expect(mergePlaceOptions(
+      [
+        { placeId: 'catalog-1', name: 'Cầu Rồng', address: 'Đầu cầu phía Tây' },
+        { placeId: 'catalog-2', name: 'Cầu Rồng', address: 'Đầu cầu phía Đông' },
+      ],
+      [
+        { id: '10', name: 'Cầu Rồng', catalogPlaceId: 'catalog-1' },
+        { id: '11', name: 'Cầu Rồng', address: 'Địa điểm tự nhập' },
+      ],
+    )).toEqual([
+      {
+        key: 'backend:10',
+        name: 'Cầu Rồng',
+        backendPlaceId: '10',
+        catalogPlaceId: 'catalog-1',
+        address: 'Đầu cầu phía Tây',
+        latitude: null,
+        longitude: null,
+        selectionValue: 'Cầu Rồng — Đầu cầu phía Tây',
+      },
+      {
+        key: 'backend:11',
+        name: 'Cầu Rồng',
+        backendPlaceId: '11',
+        catalogPlaceId: null,
+        address: 'Địa điểm tự nhập',
+        latitude: null,
+        longitude: null,
+        selectionValue: 'Cầu Rồng — Địa điểm tự nhập',
+      },
+      {
+        key: 'catalog:catalog-2',
+        name: 'Cầu Rồng',
+        backendPlaceId: null,
+        catalogPlaceId: 'catalog-2',
+        address: 'Đầu cầu phía Đông',
+        latitude: null,
+        longitude: null,
+        selectionValue: 'Cầu Rồng — Đầu cầu phía Đông',
+      },
+    ])
+    expect(normalizePlaceName('  Đồi   chè Cầu Đất ')).toBe('doi che cau dat')
   })
 })
 

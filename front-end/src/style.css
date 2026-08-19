@@ -757,7 +757,8 @@ textarea:focus {
 }
 
 .image-upload-field small,
-.travel-form label>small {
+.travel-form label>small,
+.stop-form label>small {
     color: var(--muted);
     font-size: .75rem;
     font-weight: 400;
@@ -1001,7 +1002,7 @@ input[type="file"]::file-selector-button {
 
 .image-queue-item {
     display: grid;
-    grid-template-columns: 140px minmax(0, 1fr);
+    grid-template-columns: 320px minmax(0, 1fr);
     gap: 16px;
     padding: 14px;
     border: 1px solid var(--line);

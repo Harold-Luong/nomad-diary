@@ -14,13 +14,40 @@ const timestampSchema = z
 
 const nullableTimestampSchema = z.preprocess(blankToNull, timestampSchema.nullable())
 
+const placeInputSchema = z.object({
+  catalogPlaceId: z.string().trim().min(1).max(64).nullable().optional(),
+  countryCode: z.string().trim().length(2).toUpperCase().default('VN'),
+  provinceCode: z.string().trim().min(1).max(50),
+  provinceName: z.string().trim().min(1).max(255),
+  wardCode: z.string().trim().min(1).max(50),
+  wardName: z.string().trim().min(1).max(255),
+  name: z.string().trim().min(1).max(255),
+  address: z.string().trim().min(1).max(2_000).nullable().optional(),
+  latitude: z.number().min(-90).max(90).nullable().optional(),
+  longitude: z.number().min(-180).max(180).nullable().optional(),
+}).strict()
+
 const stopFields = {
   placeId: idSchema,
+  place: placeInputSchema,
   visitOrder: z.number().int().min(VISIT_ORDER.MIN).max(VISIT_ORDER.MAX).optional(),
   arrivedAt: nullableTimestampSchema,
   departedAt: nullableTimestampSchema,
   title: nullableTextSchema(255, 'Tiêu đề tối đa 255 ký tự'),
   note: nullableTextSchema(20_000, 'Ghi chú tối đa 20000 ký tự'),
+}
+
+function validatePlaceSelection(value, context, required) {
+  const hasPlaceId = value.placeId !== undefined
+  const hasPlace = value.place !== undefined
+
+  if ((required && !hasPlaceId && !hasPlace) || (hasPlaceId && hasPlace)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['place'],
+      message: 'Cần chọn một địa điểm đã lưu hoặc cung cấp địa điểm mới',
+    })
+  }
 }
 
 function validateTimeRange(value, context) {
@@ -39,7 +66,8 @@ function validateTimeRange(value, context) {
 
 export const tripStopSchema = z
   .object({
-    placeId: stopFields.placeId,
+    placeId: stopFields.placeId.optional(),
+    place: stopFields.place.optional(),
     visitOrder: stopFields.visitOrder,
     arrivedAt: stopFields.arrivedAt.optional().default(null),
     departedAt: stopFields.departedAt.optional().default(null),
@@ -47,14 +75,20 @@ export const tripStopSchema = z
     note: stopFields.note.optional().default(null),
   })
   .strict()
-  .superRefine(validateTimeRange)
+  .superRefine((value, context) => {
+    validatePlaceSelection(value, context, true)
+    validateTimeRange(value, context)
+  })
 
 export const tripStopUpdateSchema = z
   .object(stopFields)
   .partial()
   .strict()
   .refine((value) => Object.keys(value).length > 0, 'Cần ít nhất một trường để cập nhật')
-  .superRefine(validateTimeRange)
+  .superRefine((value, context) => {
+    validatePlaceSelection(value, context, false)
+    validateTimeRange(value, context)
+  })
 
 export const reorderStopsSchema = z.object({
   stops: z

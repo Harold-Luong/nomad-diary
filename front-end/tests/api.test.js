@@ -12,6 +12,8 @@ import {
     authApi,
     healthApi,
     imagesApi,
+    locationCatalogApi,
+    placesApi,
     provincesApi,
     reviewsApi,
     tripStopsApi,
@@ -59,6 +61,21 @@ test('public auth calls do not send a stale bearer token', async () => {
     const [url, options] = fetch.mock.calls[0]
     expect(url).toBe('http://localhost:3000/auth/login')
     expect(options.method).toBe('POST')
+    expect(options.credentials).toBe('include')
+    expect(options.headers.has('Authorization')).toBe(false)
+})
+
+test('refresh uses the HttpOnly cookie without sending a token in the body', async () => {
+    fetch.mockResolvedValueOnce(
+        jsonResponse({ success: true, data: { accessToken: 'new-token' } }),
+    )
+
+    await authApi.refreshToken()
+
+    const [url, options] = fetch.mock.calls[0]
+    expect(url).toBe('http://localhost:3000/auth/refresh-token')
+    expect(options.credentials).toBe('include')
+    expect(options.body).toBeUndefined()
     expect(options.headers.has('Authorization')).toBe(false)
 })
 
@@ -204,6 +221,59 @@ test('province API uses the implemented backend routes and filters', async () =>
     expect(
         fetch.mock.calls.every(([, options]) =>
             options.headers.get('Authorization') === 'Bearer access-token'),
+    ).toBe(true)
+})
+
+test('places API loads only the current user history for a province and ward', async () => {
+    setAccessToken('access-token')
+    fetch.mockResolvedValueOnce(jsonResponse({ success: true, data: [], meta: {} }))
+
+    await placesApi.list({
+        provinceCode: '70',
+        wardCode: '25180',
+        wardName: 'Phường Bình Minh',
+        pageSize: 100,
+    })
+
+    expect(fetch.mock.calls[0][0]).toBe(
+        'http://localhost:3000/places?provinceCode=70&wardCode=25180&wardName=Ph%C6%B0%E1%BB%9Dng+B%C3%ACnh+Minh&pageSize=100',
+    )
+    expect(fetch.mock.calls[0][1].headers.get('Authorization')).toBe('Bearer access-token')
+})
+
+test('location catalog loads dependent public options without bearer auth', async () => {
+    setAccessToken('access-token')
+    fetch
+        .mockResolvedValueOnce(jsonResponse({ data: [{ code: '48', name: 'Đà Nẵng' }] }))
+        .mockResolvedValueOnce(jsonResponse({ data: [{ code: '20242', name: 'Hải Châu' }] }))
+        .mockResolvedValueOnce(jsonResponse({
+            data: [{ placeId: 'place-1', name: 'Cầu Rồng' }],
+            meta: { nextCursor: 'next-cursor' },
+        }))
+        .mockResolvedValueOnce(jsonResponse({
+            data: [{ placeId: 'place-2', name: 'Chợ Hàn' }],
+            meta: { nextCursor: null },
+        }))
+
+    await expect(locationCatalogApi.listProvinces()).resolves.toEqual([
+        { code: '48', name: 'Đà Nẵng' },
+    ])
+    await expect(locationCatalogApi.listWards('48')).resolves.toEqual([
+        { code: '20242', name: 'Hải Châu' },
+    ])
+    await expect(locationCatalogApi.listPlaces('48', '20242')).resolves.toEqual([
+        { placeId: 'place-1', name: 'Cầu Rồng' },
+        { placeId: 'place-2', name: 'Chợ Hàn' },
+    ])
+
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+        'https://locations-api.nomad-diary.site/v1/provinces',
+        'https://locations-api.nomad-diary.site/v1/provinces/48/wards',
+        'https://locations-api.nomad-diary.site/v1/provinces/48/wards/20242/places?limit=50',
+        'https://locations-api.nomad-diary.site/v1/provinces/48/wards/20242/places?limit=50&cursor=next-cursor',
+    ])
+    expect(
+        fetch.mock.calls.every(([, options]) => !new Headers(options.headers).has('Authorization')),
     ).toBe(true)
 })
 
@@ -366,9 +436,13 @@ describe('API surface', () => {
         expect(Object.keys(imagesApi).sort()).toEqual(
             ['create', 'getById', 'list', 'remove', 'update'].sort(),
         )
+        expect(Object.keys(locationCatalogApi).sort()).toEqual(
+            ['listPlaces', 'listProvinces', 'listWards'].sort(),
+        )
         expect(Object.keys(provincesApi).sort()).toEqual(
             ['getById', 'list', 'listPlaces', 'listVisited'].sort(),
         )
+        expect(Object.keys(placesApi)).toEqual(['list'])
         expect(Object.keys(tripStopsApi).sort()).toEqual(
             ['create', 'listByTrip', 'remove', 'reorder', 'update'].sort(),
         )

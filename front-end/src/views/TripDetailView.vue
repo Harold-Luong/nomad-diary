@@ -1,32 +1,48 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { RouterLink, useRouter } from 'vue-router'
 
 import { useTripsStore } from '@/stores/trips.js'
 import { useTripStopsStore } from '@/stores/trip-stops.js'
-import { useProvincesStore } from '@/stores/provinces.js'
+import { locationCatalogApi } from '@/api/location-catalog.js'
+import { placesApi } from '@/api/places.js'
 import { TRIP_STATUS_LABEL } from '@/constants/domain.js'
 import { ROUTE_NAME } from '@/constants/routes.js'
 import { useFormValidation } from '@/composables/index.js'
 import { tripStopSchema } from '@/schemas/index.js'
 import { formatDate, formatDateTime } from '@/utils/date.js'
+import { getErrorMessage } from '@/utils/error.js'
+import {
+    addPlaceSelectionValues,
+    mergePlaceOptions,
+    normalizePlaceName,
+} from '@/utils/places.js'
 
 const props = defineProps({ id: { type: String, required: true } })
 const router = useRouter()
 const tripsStore = useTripsStore()
 const stopsStore = useTripStopsStore()
-const provincesStore = useProvincesStore()
 const { current: trip, loading: tripLoading, error: tripError } = storeToRefs(tripsStore)
 const { loading: stopLoading, error: stopError } = storeToRefs(stopsStore)
-const { items: provinces, places } = storeToRefs(provincesStore)
 const stops = computed(() => stopsStore.forTrip(props.id))
 const showStopForm = ref(false)
 const editingStopId = ref(null)
+const originalPlaceId = ref('')
+const catalogProvinces = ref([])
+const catalogWards = ref([])
+const placeOptions = ref([])
+const loadingCatalogProvinces = ref(false)
+const loadingCatalogWards = ref(false)
+const loadingCatalogPlaces = ref(false)
+const catalogError = ref('')
+let wardsRequestId = 0
+let placesRequestId = 0
 const { validate, errorFor, resetValidation } = useFormValidation(tripStopSchema)
 const stopForm = reactive({
-    provinceId: '',
-    placeSearch: '',
+    provinceCode: '',
+    wardCode: '',
+    placeName: '',
     placeId: '',
     arrivedAt: '',
     departedAt: '',
@@ -46,9 +62,12 @@ function toApiDateTime(value) {
 }
 
 function resetStopForm() {
+    wardsRequestId += 1
+    placesRequestId += 1
     Object.assign(stopForm, {
-        provinceId: '',
-        placeSearch: '',
+        provinceCode: '',
+        wardCode: '',
+        placeName: '',
         placeId: '',
         arrivedAt: '',
         departedAt: '',
@@ -56,48 +75,252 @@ function resetStopForm() {
         note: '',
     })
     editingStopId.value = null
+    originalPlaceId.value = ''
+    catalogWards.value = []
+    placeOptions.value = []
+    catalogError.value = ''
+    loadingCatalogWards.value = false
+    loadingCatalogPlaces.value = false
     showStopForm.value = false
-    provincesStore.clearPlaces()
     resetValidation()
 }
 
-async function loadPlaces() {
-    stopForm.placeId = ''
-    stopForm.placeSearch = ''
-    provincesStore.clearPlaces()
-    if (stopForm.provinceId) {
-        await provincesStore.fetchPlaces(stopForm.provinceId, { page: 1, pageSize: 100 })
+function restoreOriginalPlace() {
+    stopForm.placeId = editingStopId.value ? originalPlaceId.value : ''
+}
+
+async function loadCatalogProvinces() {
+    loadingCatalogProvinces.value = true
+    catalogError.value = ''
+
+    try {
+        catalogProvinces.value = await locationCatalogApi.listProvinces()
+    } catch (requestError) {
+        catalogError.value = getErrorMessage(requestError, 'Không tải được danh sách tỉnh/thành')
+    } finally {
+        loadingCatalogProvinces.value = false
     }
 }
 
-async function searchPlaces() {
-    stopForm.placeId = ''
-    if (!stopForm.provinceId) return
-    await provincesStore.fetchPlaces(stopForm.provinceId, {
-        search: stopForm.placeSearch,
+async function loadCatalogWards() {
+    const provinceCode = stopForm.provinceCode
+    const requestId = ++wardsRequestId
+    placesRequestId += 1
+    stopForm.wardCode = ''
+    stopForm.placeName = ''
+    catalogWards.value = []
+    placeOptions.value = []
+    catalogError.value = ''
+    loadingCatalogWards.value = false
+    loadingCatalogPlaces.value = false
+    restoreOriginalPlace()
+
+    if (!provinceCode) return
+
+    loadingCatalogWards.value = true
+
+    try {
+        const items = await locationCatalogApi.listWards(provinceCode)
+        if (requestId === wardsRequestId && stopForm.provinceCode === provinceCode) {
+            catalogWards.value = items
+        }
+    } catch (requestError) {
+        if (requestId === wardsRequestId) {
+            catalogError.value = getErrorMessage(requestError, 'Không tải được danh sách phường/xã')
+        }
+    } finally {
+        if (requestId === wardsRequestId) loadingCatalogWards.value = false
+    }
+}
+
+async function loadCatalogPlaces() {
+    const provinceCode = stopForm.provinceCode
+    const wardCode = stopForm.wardCode
+    const requestId = ++placesRequestId
+    stopForm.placeName = ''
+    placeOptions.value = []
+    catalogError.value = ''
+    loadingCatalogPlaces.value = false
+    restoreOriginalPlace()
+
+    if (!provinceCode || !wardCode) return
+
+    loadingCatalogPlaces.value = true
+
+    const catalogRequest = locationCatalogApi.listPlaces(provinceCode, wardCode)
+    const backendRequest = placesApi.list({
+        provinceCode,
+        wardCode,
+        wardName: catalogWards.value.find((ward) => ward.code === wardCode)?.name,
         page: 1,
         pageSize: 100,
     })
+    const [catalogResult, backendResult] = await Promise.allSettled([
+        catalogRequest,
+        backendRequest,
+    ])
+
+    if (
+        requestId === placesRequestId
+        && stopForm.provinceCode === provinceCode
+        && stopForm.wardCode === wardCode
+    ) {
+        const catalogItems = catalogResult.status === 'fulfilled' ? catalogResult.value : []
+        const backendItems = backendResult.status === 'fulfilled' ? backendResult.value.data : []
+        placeOptions.value = mergePlaceOptions(catalogItems, backendItems)
+
+        if (catalogResult.status === 'rejected' && backendResult.status === 'rejected') {
+            catalogError.value = getErrorMessage(
+                backendResult.reason,
+                'Không tải được danh sách địa điểm',
+            )
+        }
+    }
+
+    if (requestId === placesRequestId) loadingCatalogPlaces.value = false
+}
+
+function normalizeSelectedPlaceName() {
+    const selectedPlace = placeOptions.value.find(
+        (place) => place.selectionValue === stopForm.placeName.trim(),
+    )
+
+    if (!stopForm.placeName.trim()) {
+        restoreOriginalPlace()
+    } else if (selectedPlace) {
+        stopForm.placeId = selectedPlace.backendPlaceId || ''
+    } else {
+        stopForm.placeId = ''
+    }
+    catalogError.value = ''
+}
+
+function selectedPlaceInput() {
+    const placeName = stopForm.placeName.trim()
+
+    if (!placeName) {
+        restoreOriginalPlace()
+        return stopForm.placeId ? { placeId: stopForm.placeId } : null
+    }
+
+    if (stopForm.placeId) return { placeId: stopForm.placeId }
+
+    const catalogProvince = catalogProvinces.value.find(
+        (province) => province.code === stopForm.provinceCode,
+    )
+    const catalogWard = catalogWards.value.find(
+        (ward) => ward.code === stopForm.wardCode,
+    )
+    const selectedOption = placeOptions.value.find(
+        (place) => place.selectionValue === placeName,
+    )
+
+    if (!catalogProvince || !catalogWard || catalogWard.legacy) return null
+
+    return {
+        place: {
+            catalogPlaceId: selectedOption?.catalogPlaceId || null,
+            countryCode: 'VN',
+            provinceCode: catalogProvince.code,
+            provinceName: catalogProvince.name,
+            wardCode: catalogWard.code,
+            wardName: catalogWard.name,
+            name: selectedOption?.name || placeName,
+            address: selectedOption?.address || null,
+            latitude: selectedOption?.latitude ?? null,
+            longitude: selectedOption?.longitude ?? null,
+        },
+    }
 }
 
 async function startEditing(stop) {
     showStopForm.value = true
     editingStopId.value = stop.id
+    originalPlaceId.value = String(stop.placeId)
+    catalogError.value = ''
+    resetValidation()
+
+    if (!catalogProvinces.value.some(
+        (province) => province.code === stop.place.provinceCode,
+    )) {
+        catalogProvinces.value.push({
+            code: stop.place.provinceCode,
+            name: stop.place.provinceName,
+        })
+    }
+
     Object.assign(stopForm, {
-        provinceId: String(stop.place.provinceId),
-        placeSearch: '',
+        provinceCode: stop.place.provinceCode,
+        wardCode: '',
+        placeName: '',
         placeId: String(stop.placeId),
         arrivedAt: toLocalDateTime(stop.arrivedAt),
         departedAt: toLocalDateTime(stop.departedAt),
         title: stop.title || '',
         note: stop.note || '',
     })
-    await provincesStore.fetchPlaces(stop.place.provinceId, { page: 1, pageSize: 100 })
+
+    const expectedStopId = String(stop.id)
+    await loadCatalogWards()
+    if (String(editingStopId.value) !== expectedStopId) return
+
+    let selectedWard = catalogWards.value.find(
+        (ward) => ward.code === stop.place.wardCode,
+    )
+    if (!selectedWard && stop.place.wardName) {
+        selectedWard = catalogWards.value.find(
+            (ward) => normalizePlaceName(ward.name) === normalizePlaceName(stop.place.wardName),
+        )
+    }
+    if (!selectedWard) {
+        selectedWard = {
+            code: `legacy:${stop.placeId}`,
+            provinceCode: stop.place.provinceCode,
+            name: stop.place.wardName || 'Phường/xã chưa xác định',
+            legacy: true,
+        }
+        catalogWards.value.push(selectedWard)
+    }
+
+    stopForm.wardCode = selectedWard.code
+    if (!selectedWard.legacy) {
+        await loadCatalogPlaces()
+        if (String(editingStopId.value) !== expectedStopId) return
+    } else {
+        placeOptions.value = []
+    }
+
+    if (!placeOptions.value.some(
+        (place) => String(place.backendPlaceId) === String(stop.placeId),
+    )) {
+        placeOptions.value = addPlaceSelectionValues([{
+            key: `backend:${stop.placeId}`,
+            name: stop.place.name,
+            backendPlaceId: String(stop.placeId),
+            catalogPlaceId: stop.place.catalogPlaceId || null,
+            address: stop.place.address || null,
+            latitude: stop.place.latitude ?? null,
+            longitude: stop.place.longitude ?? null,
+        }, ...placeOptions.value])
+    }
+
+    const currentPlace = placeOptions.value.find(
+        (place) => String(place.backendPlaceId) === String(stop.placeId),
+    )
+    stopForm.placeName = currentPlace?.selectionValue || stop.place.name
+    stopForm.placeId = String(stop.placeId)
 }
 
 async function saveStop() {
+    normalizeSelectedPlaceName()
+    const placeInput = selectedPlaceInput()
+    if (!placeInput) {
+        catalogError.value = 'Vui lòng chọn đầy đủ tỉnh/thành, phường/xã và địa điểm'
+        return
+    }
+
     const payload = validate({
-        placeId: stopForm.placeId,
+        ...placeInput,
         arrivedAt: toApiDateTime(stopForm.arrivedAt),
         departedAt: toApiDateTime(stopForm.departedAt),
         title: stopForm.title,
@@ -140,8 +363,13 @@ onMounted(async () => {
     await Promise.all([
         tripsStore.fetchTrip(props.id),
         stopsStore.fetchForTrip(props.id),
-        provincesStore.fetchProvinces({ countryCode: 'VN', page: 1, pageSize: 100 }),
+        loadCatalogProvinces(),
     ])
+})
+
+onBeforeUnmount(() => {
+    wardsRequestId += 1
+    placesRequestId += 1
 })
 </script>
 
@@ -194,33 +422,40 @@ onMounted(async () => {
                     </div>
                     <div class="form-grid">
                         <label>
-                            Tỉnh thành
-                            <select v-model="stopForm.provinceId" required @change="loadPlaces">
-                                <option value="">Chọn tỉnh thành</option>
-                                <option v-for="province in provinces" :key="province.id" :value="String(province.id)">{{ province.name }}</option>
+                            Tỉnh / thành phố
+                            <select v-model="stopForm.provinceCode" required :disabled="loadingCatalogProvinces" @change="loadCatalogWards">
+                                <option value="">{{ loadingCatalogProvinces ? 'Đang tải tỉnh/thành...' : 'Chọn tỉnh/thành' }}</option>
+                                <option v-for="province in catalogProvinces" :key="province.code" :value="province.code">{{ province.name }}</option>
                             </select>
                         </label>
                         <label>
-                            Địa điểm
-                            <select v-model="stopForm.placeId" required :disabled="!stopForm.provinceId">
-                                <option value="">Chọn địa điểm</option>
-                                <option v-for="place in places" :key="place.id" :value="String(place.id)">{{ place.name }}</option>
+                            Phường / xã
+                            <select v-model="stopForm.wardCode" required :disabled="!stopForm.provinceCode || loadingCatalogWards" @change="loadCatalogPlaces">
+                                <option value="">{{ loadingCatalogWards ? 'Đang tải phường/xã...' : 'Chọn phường/xã' }}</option>
+                                <option v-for="ward in catalogWards" :key="ward.code" :value="ward.code">{{ ward.name }}</option>
                             </select>
-                            <span v-if="errorFor('placeId')" class="field-error">{{ errorFor('placeId') }}</span>
                         </label>
-                    </div>
-                    <div class="inline-search">
-                        <label>
-                            Tìm nhanh trong tỉnh
-                            <input v-model.trim="stopForm.placeSearch" :disabled="!stopForm.provinceId" placeholder="Tên địa điểm, quận huyện..." />
-                        </label>
-                        <button class="button button-secondary" :disabled="!stopForm.provinceId || stopLoading" type="button" @click="searchPlaces">Tìm địa điểm</button>
                     </div>
                     <label>
-                        Tên riêng cho trạm
-                        <input v-model.trim="stopForm.title" maxlength="255" placeholder="Ví dụ: Buổi sáng bên hồ..." />
-                        <span v-if="errorFor('title')" class="field-error">{{ errorFor('title') }}</span>
+                        Địa điểm
+                        <input
+                            v-model="stopForm.placeName"
+                            list="catalog-place-options"
+                            maxlength="512"
+                            autocomplete="off"
+                            required
+                            :disabled="!stopForm.wardCode || loadingCatalogPlaces"
+                            :placeholder="loadingCatalogPlaces ? 'Đang tải địa điểm...' : 'Chọn hoặc nhập địa điểm'"
+                            @input="normalizeSelectedPlaceName"
+                            @change="normalizeSelectedPlaceName"
+                        />
+                        <datalist id="catalog-place-options">
+                            <option v-for="place in placeOptions" :key="place.key" :value="place.selectionValue"></option>
+                        </datalist>
+                        <small>Chọn một gợi ý hoặc nhập tên địa điểm mới.</small>
+                        <span v-if="errorFor('place') || errorFor('placeId')" class="field-error">{{ errorFor('place') || errorFor('placeId') }}</span>
                     </label>
+                    <p v-if="catalogError" class="form-error">{{ catalogError }}</p>
                     <div class="form-grid">
                         <label>
                             Thời gian đến
@@ -234,13 +469,18 @@ onMounted(async () => {
                         </label>
                     </div>
                     <label>
+                        Tiêu đề trạm
+                        <input v-model="stopForm.title" maxlength="255" placeholder="Ví dụ: Ngắm bình minh bên hồ" />
+                        <span v-if="errorFor('title')" class="field-error">{{ errorFor('title') }}</span>
+                    </label>
+                    <label>
                         Ghi chú dọc đường
                         <textarea v-model="stopForm.note" rows="3" placeholder="Đường vào, món nên thử, điều cần nhớ..."></textarea>
                         <span v-if="errorFor('note')" class="field-error">{{ errorFor('note') }}</span>
                     </label>
                     <p v-if="stopError" class="form-error">{{ stopError.message }}</p>
                     <div class="actions">
-                        <button class="button button-primary" :disabled="stopLoading" type="submit">{{ stopLoading ? 'Đang ghim...' : editingStopId ? 'Lưu trạm dừng' : 'Ghim vào lịch trình' }}</button>
+                        <button class="button button-primary" :disabled="stopLoading || !stopForm.provinceCode || !stopForm.wardCode || !stopForm.placeName.trim()" type="submit">{{ stopLoading ? 'Đang ghim...' : editingStopId ? 'Lưu trạm dừng' : 'Ghim vào lịch trình' }}</button>
                         <button class="button button-secondary" type="button" @click="resetStopForm">Hủy</button>
                     </div>
                 </form>
@@ -258,9 +498,12 @@ onMounted(async () => {
                         <article class="stop-card">
                             <div class="stop-card-heading">
                                 <div>
-                                    <p class="stop-location">{{ stop.place.provinceName }} · {{ stop.place.provinceCode }}</p>
+                                    <p class="stop-location">
+                                        {{ stop.place.provinceName }}<template v-if="stop.place.wardName"> · {{ stop.place.wardName }}</template>
+                                    </p>
                                     <h3>{{ stop.title || stop.place.name }}</h3>
                                     <p v-if="stop.title" class="actual-place">⌖ {{ stop.place.name }}</p>
+                                    <p v-if="stop.place.address" class="actual-place">{{ stop.place.address }}</p>
                                 </div>
                                 <div class="order-actions" aria-label="Sắp xếp trạm dừng">
                                     <button type="button" :disabled="index === 0 || stopLoading" aria-label="Đưa trạm lên" @click="moveStop(index, -1)">↑</button>
