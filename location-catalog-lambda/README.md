@@ -1,115 +1,124 @@
 # Location Catalog Lambda
 
-API tra cứu catalog địa lý Việt Nam chạy bằng AWS Lambda và đọc dữ liệu từ
+Query service read-only cho catalog địa lý Việt Nam. Lambda nhận event API
+Gateway HTTP API v2, validate route/query và đọc tỉnh, phường/xã, địa điểm từ
 DynamoDB.
 
-Module hiện tại chỉ triển khai một **Query Lambda read-only**. Lambda cung cấp
-danh sách tỉnh/thành, phường/xã, địa điểm theo phường và chi tiết địa điểm.
-Các nội dung từng có trong tài liệu thiết kế cũ như Admin Lambda, Province Sync
-Lambda, trình import/migration DynamoDB và test suite không còn nằm trong source
-code hiện tại.
+## Vai trò và phạm vi
 
-## Trạng thái hiện tại
+Đã triển khai:
 
-Đã có:
+- Năm public route `GET`.
+- Query DynamoDB bằng AWS SDK v3.
+- Prefix search, lọc featured và cursor cho danh sách địa điểm.
+- Response/error JSON thống nhất và structured error log.
+- Container image Lambda Node.js 22 và local Runtime Interface Emulator.
+- Frontend Nomad Diary gọi trực tiếp API này khi chọn trip stop.
 
-- Lambda handler tương thích event của API Gateway HTTP API.
-- Năm route public dùng phương thức `GET`.
-- Truy vấn DynamoDB bằng AWS SDK v3.
-- Tìm địa điểm theo prefix tên, lọc `featured` và phân trang bằng cursor.
-- Docker image dựa trên AWS Lambda Node.js 22.
-- Docker Compose để build và gọi Lambda Runtime Interface Emulator ở local.
+Chưa triển khai:
 
-Chưa có trong module này:
+- API ghi, admin hoặc đồng bộ dữ liệu.
+- Script tạo bảng/index, import hoặc seed DynamoDB.
+- Authentication, rate limit và CORS trong handler.
+- Infrastructure as Code và automated test.
 
-- Infrastructure as Code để tạo API Gateway, Lambda, IAM hoặc DynamoDB.
-- Script tạo bảng, tạo index, seed, import hay đồng bộ dữ liệu.
-- API tạo, sửa, archive hoặc xóa dữ liệu.
-- Authentication/authorization.
-- Cấu hình CORS và throttling.
-- Automated test và npm script `test`.
-- Tích hợp trực tiếp với `front-end` hoặc `back-end` của Nomad Diary.
-
-Do đó bảng DynamoDB và dữ liệu phải tồn tại trước khi gọi các route catalog.
-
-## Luồng xử lý
+## Kiến trúc
 
 ```text
-Client
-  |
-  v
+Vue frontend
+   |
+   v
 API Gateway HTTP API
-  |
-  v
-src/handlers/query.handler
-  |
-  v
+   |
+   v
+src/handlers/query.js
+   |
+   v
 src/repositories/location-catalog.repository.js
-  |
-  v
-DynamoDB: LocationCatalog (ap-southeast-1)
+   |
+   v
+DynamoDB LocationCatalog
 ```
 
-`query.handler` chịu trách nhiệm nhận diện route, validate path/query, kiểm tra
-cursor và tạo HTTP response. Repository là lớp duy nhất tạo `GetCommand` và
-`QueryCommand`.
-
-API Gateway, custom domain, CORS, throttling và quyền IAM là hạ tầng bên ngoài
-source code này.
-
-## Công nghệ
-
-- Node.js 22 trở lên, ES modules.
-- AWS Lambda container image.
-- AWS SDK for JavaScript v3.
-- DynamoDB Document Client.
-- Docker và Docker Compose cho local container.
+Handler nhận diện route, validate input, encode/decode cursor và tạo response.
+Repository là lớp duy nhất tạo `GetCommand`/`QueryCommand`.
 
 ## Cấu trúc thư mục
 
 ```text
 location-catalog-lambda/
 ├── src/
-│   ├── handlers/
-│   │   └── query.js
-│   ├── repositories/
-│   │   └── location-catalog.repository.js
+│   ├── handlers/query.js
+│   ├── repositories/location-catalog.repository.js
 │   └── shared/
 │       ├── cursor.js
 │       ├── normalize.js
 │       └── response.js
-├── .dockerignore
 ├── compose.yaml
 ├── DEPLOY.md
 ├── Dockerfile
 ├── package-lock.json
-└── package.json
+├── package.json
+└── README.md
 ```
 
-## API hiện có
+## Yêu cầu
 
-Base path là `/v1`.
+- Node.js 22+ và npm.
+- Docker/Compose để chạy container local.
+- AWS credentials và quyền DynamoDB cho route dữ liệu.
+- Bảng `LocationCatalog` cùng `GSI1`, `GSI2` đã tồn tại.
 
-| Method | Route | Truy cập DynamoDB | Mô tả |
-| --- | --- | --- | --- |
-| `GET` | `/v1/health` | Không | Kiểm tra Lambda đang hoạt động |
-| `GET` | `/v1/provinces` | Có | Danh sách tỉnh/thành đang active |
-| `GET` | `/v1/provinces/{provinceCode}/wards` | Có | Danh sách phường/xã đang active của tỉnh |
-| `GET` | `/v1/provinces/{provinceCode}/wards/{wardCode}/places` | Có | Danh sách địa điểm đang active của phường |
-| `GET` | `/v1/provinces/{provinceCode}/places/{placeId}` | Có | Lấy một địa điểm đang active |
+## Cài đặt
 
-Handler chấp nhận path có một dấu `/` ở cuối. Mọi HTTP method khác `GET`
-trả về `405 METHOD_NOT_ALLOWED`.
+```bash
+cd location-catalog-lambda
+npm ci
+```
 
-### Quy tắc path parameter
+`package.json` hiện không có script start, test, import hoặc migrate.
+
+## Cấu hình runtime
+
+Source hiện cố định:
+
+| Cấu hình | Giá trị |
+| --- | --- |
+| AWS Region | `ap-southeast-1` |
+| DynamoDB table | `LocationCatalog` |
+| Index | `GSI1`, `GSI2` |
+| Lambda handler | `src/handlers/query.handler` |
+| Architecture Compose | `linux/amd64` |
+
+`LOG_LEVEL=info` có trong `compose.yaml`, nhưng source chưa đọc biến này.
+Tên table/region cũng chưa nhận từ environment variable.
+
+## API
+
+Base path: `/v1`.
+
+| Method | Route | DynamoDB |
+| --- | --- | --- |
+| `GET` | `/v1/health` | Không |
+| `GET` | `/v1/provinces` | Query `GSI1` |
+| `GET` | `/v1/provinces/{provinceCode}/wards` | Query base table |
+| `GET` | `/v1/provinces/{provinceCode}/wards/{wardCode}/places` | Get ward + query `GSI2` |
+| `GET` | `/v1/provinces/{provinceCode}/places/{placeId}` | Get place |
+
+Một trailing slash được chấp nhận. Method khác `GET` trả
+`405 METHOD_NOT_ALLOWED`.
+
+### Path parameters
 
 | Parameter | Quy tắc |
 | --- | --- |
 | `provinceCode` | Chính xác 2 chữ số |
 | `wardCode` | Chính xác 5 chữ số |
-| `placeId` | 1-64 ký tự gồm chữ, số, `_` hoặc `-` |
+| `placeId` | 1–64 ký tự chữ, số, `_` hoặc `-` |
 
-### Query danh sách địa điểm
+### Place list query
+
+Ví dụ:
 
 ```http
 GET /v1/provinces/48/wards/20242/places?search=cau&featured=true&limit=20
@@ -117,34 +126,27 @@ GET /v1/provinces/48/wards/20242/places?search=cau&featured=true&limit=20
 
 | Query | Mặc định | Quy tắc |
 | --- | --- | --- |
-| `search` | Không có | Chuỗi sau khi trim dài 1-100 ký tự |
-| `featured` | Không lọc | Chỉ nhận chuỗi `true` hoặc `false` |
-| `limit` | `20` | Số nguyên từ 1 đến 50 |
-| `cursor` | Không có | Cursor opaque do response trước trả về |
+| `search` | Không có | Sau trim dài 1–100, prefix search |
+| `featured` | Không lọc | Chuỗi `true` hoặc `false` |
+| `limit` | `20` | Số nguyên 1–50 |
+| `cursor` | Không có | Opaque cursor từ response trước |
 
-`search` là prefix search, không phải full-text hay fuzzy search. Giá trị được:
+Search chuẩn hóa Unicode NFD, bỏ dấu, chuyển `đ/Đ` thành `d/D`, lowercase,
+trim/gom khoảng trắng rồi đổi khoảng trắng thành `-`. `Cầu Rồng` thành
+`cau-rong`.
 
-1. Chuẩn hóa NFD và bỏ các combining mark Unicode.
-2. Chuyển thành chữ thường.
-3. Trim và gom nhiều khoảng trắng thành một.
-4. Đổi khoảng trắng thành dấu `-`.
-
-Ví dụ `Cầu Rồng` trở thành search key `cau-rong`. Repository dùng key này để
-query prefix của `GSI2SK`.
-
-`cursor` được encode bằng Base64 URL-safe từ `LastEvaluatedKey` và scope của
-request. Cursor chỉ dùng lại được với đúng `provinceCode`, `wardCode`,
-`search` và `featured` đã tạo ra nó.
+Cursor chứa `LastEvaluatedKey` và request scope. Nó chỉ dùng lại được với đúng
+`provinceCode`, `wardCode`, `search` và `featured`.
 
 ## Response contract
 
-Tất cả response có header:
+Header:
 
 ```text
 content-type: application/json; charset=utf-8
 ```
 
-### Health
+Health:
 
 ```json
 {
@@ -155,7 +157,7 @@ content-type: application/json; charset=utf-8
 }
 ```
 
-### Danh sách tỉnh
+Province list:
 
 ```json
 {
@@ -171,7 +173,7 @@ content-type: application/json; charset=utf-8
 }
 ```
 
-### Danh sách phường/xã
+Ward list:
 
 ```json
 {
@@ -188,44 +190,22 @@ content-type: application/json; charset=utf-8
 }
 ```
 
-### Danh sách địa điểm
+Place list/detail hiện chỉ map bốn field:
 
 ```json
 {
-  "data": [
-    {
-      "placeId": "01JABC123",
-      "provinceCode": "48",
-      "wardCode": "20242",
-      "name": "Cầu Rồng"
-    }
-  ],
-  "meta": {
-    "nextCursor": "eyJrZXkiOns..."
-  }
+  "placeId": "01JABC123",
+  "provinceCode": "48",
+  "wardCode": "20242",
+  "name": "Cầu Rồng"
 }
 ```
 
-`nextCursor` là `null` khi không còn trang tiếp theo.
+List bọc các item trong `data` và thêm `meta.nextCursor`; detail đặt object
+trực tiếp trong `data`. Projection có đọc thêm description/address/coordinate/
+featured nhưng mapper hiện chưa trả các field đó.
 
-### Chi tiết địa điểm
-
-```json
-{
-  "data": {
-    "placeId": "01JABC123",
-    "provinceCode": "48",
-    "wardCode": "20242",
-    "name": "Cầu Rồng"
-  }
-}
-```
-
-Tên route là “chi tiết”, nhưng mapper hiện tại chỉ trả bốn field ở trên. Các
-field được đọc trong projection như `description`, `address`, `latitude`,
-`longitude` và `isFeatured` chưa được đưa vào response.
-
-### Error
+Error:
 
 ```json
 {
@@ -237,34 +217,21 @@ field được đọc trong projection như `description`, `address`, `latitude`
 }
 ```
 
-`requestId` chỉ có khi event đầu vào chứa
-`requestContext.requestId`.
-
-| HTTP status | Error code có thể gặp |
-| --- | --- |
+| Status | Code |
+| ---: | --- |
 | `400` | `VALIDATION_ERROR` |
 | `404` | `WARD_NOT_FOUND`, `PLACE_NOT_FOUND`, `ROUTE_NOT_FOUND` |
 | `405` | `METHOD_NOT_ALLOWED` |
 | `500` | `INTERNAL_ERROR` |
 
-Lỗi ngoài dự kiến được ghi ra `console.error` dưới dạng JSON với request ID,
-method, path, tên lỗi và message. Client chỉ nhận message tổng quát.
+`requestId` chỉ có khi event cung cấp. Lỗi ngoài dự kiến được log cùng
+request ID/method/path; client chỉ nhận message tổng quát.
 
 ## DynamoDB contract
 
-Code đang cố định:
+### Access patterns
 
-```text
-Region:     ap-southeast-1
-Table:      LocationCatalog
-GSI dùng:   GSI1, GSI2
-```
-
-Module không đọc tên bảng hoặc region từ environment variable.
-
-### Access pattern
-
-#### Tỉnh/thành
+Province:
 
 ```text
 IndexName = GSI1
@@ -272,9 +239,7 @@ GSI1PK = COUNTRY#VN
 status = ACTIVE
 ```
 
-Response lấy `code` và `name`.
-
-#### Phường/xã theo tỉnh
+Wards:
 
 ```text
 PK = PROVINCE#{provinceCode}
@@ -282,44 +247,36 @@ begins_with(SK, "WARD#")
 status = ACTIVE
 ```
 
-Response lấy `code`, `provinceCode` và `name`.
-
-#### Kiểm tra phường/xã
-
-Trước khi query địa điểm, handler đọc:
+Ward existence:
 
 ```text
 PK = PROVINCE#{provinceCode}
 SK = WARD#{wardCode}
+entityType = WARD
+status = ACTIVE
 ```
 
-Item chỉ hợp lệ khi `entityType = WARD` và `status = ACTIVE`.
-
-#### Địa điểm theo phường
+Places by ward:
 
 ```text
 IndexName = GSI2
 GSI2PK = PROVINCE#{provinceCode}#WARD#{wardCode}#PLACES
-begins_with(
-  GSI2SK,
-  "STATUS#ACTIVE#NAME#{normalizedSearchPrefix}"
-)
+begins_with(GSI2SK, "STATUS#ACTIVE#NAME#{normalizedPrefix}")
 ```
 
-Khi có `featured`, repository thêm DynamoDB `FilterExpression` trên
-`isFeatured`. Filter được áp dụng sau giới hạn đọc của DynamoDB, vì vậy một
-trang có thể ít hơn `limit` item dù vẫn còn `nextCursor`.
+`featured` dùng `FilterExpression`, được áp dụng sau DynamoDB read limit. Một
+page có thể ít item hơn `limit` nhưng vẫn có `nextCursor`.
 
-#### Chi tiết địa điểm
+Place detail:
 
 ```text
 PK = PROVINCE#{provinceCode}
 SK = PLACE#{placeId}
+entityType = PLACE
+status = ACTIVE
 ```
 
-Item chỉ hợp lệ khi `entityType = PLACE` và `status = ACTIVE`.
-
-### Item tối thiểu mà code mong đợi
+### Item mẫu tối thiểu
 
 ```json
 {
@@ -349,123 +306,96 @@ Item chỉ hợp lệ khi `entityType = PLACE` và `status = ACTIVE`.
 }
 ```
 
-Item tỉnh còn phải xuất hiện trong `GSI1` với
+Province item còn phải xuất hiện trong `GSI1` với
 `GSI1PK = COUNTRY#VN`.
 
 ### IAM tối thiểu
 
-Execution role của Lambda cần quyền đọc bảng và index:
+Execution role cần:
 
 ```text
 dynamodb:GetItem
 dynamodb:Query
 ```
 
-Source code không thực hiện `PutItem`, `UpdateItem`, `DeleteItem` hoặc
-`Scan`.
-
-## Cài dependency
-
-```powershell
-cd D:\hub\nomad-diary\location-catalog-lambda
-npm ci
-```
-
-`package.json` hiện không khai báo npm script để start, test, migrate hoặc
-import dữ liệu.
+Resource phải gồm table và indexes. Source không gọi Scan hoặc thao tác ghi.
 
 ## Chạy local bằng Docker
 
-Build image Linux AMD64:
+Build và chạy:
 
-```powershell
-cd D:\hub\nomad-diary\location-catalog-lambda
-$env:BUILDX_NO_DEFAULT_ATTESTATIONS = "1"
-docker compose build
-```
-
-Khởi động Lambda Runtime Interface Emulator:
-
-```powershell
+```bash
+cd location-catalog-lambda
+BUILDX_NO_DEFAULT_ATTESTATIONS=1 docker compose build
 docker compose up
 ```
 
-Gọi health check từ một cửa sổ PowerShell khác:
+Gọi health từ terminal khác:
 
-```powershell
-$eventBody = @{
-  version = "2.0"
-  rawPath = "/v1/health"
-  requestContext = @{
-    http = @{
-      method = "GET"
-      path = "/v1/health"
+```bash
+curl -sS \
+  -X POST \
+  'http://localhost:9000/2015-03-31/functions/function/invocations' \
+  -H 'content-type: application/json' \
+  -d '{
+    "version": "2.0",
+    "rawPath": "/v1/health",
+    "requestContext": {
+      "requestId": "local-health",
+      "http": { "method": "GET", "path": "/v1/health" }
     }
-  }
-} | ConvertTo-Json -Depth 5
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri "http://localhost:9000/2015-03-31/functions/function/invocations" `
-  -ContentType "application/json" `
-  -Body $eventBody
+  }'
 ```
 
-Dừng container:
+Dừng:
 
-```powershell
+```bash
 docker compose down
 ```
 
-`/v1/health` không gọi DynamoDB. Các route dữ liệu cần AWS SDK tìm thấy
-credentials hợp lệ và truy cập được bảng `LocationCatalog` ở
-`ap-southeast-1`. `compose.yaml` hiện không mount credentials và không cấu
-hình DynamoDB Local.
+Health không truy cập DynamoDB. `compose.yaml` không mount AWS credentials và
+không chạy DynamoDB Local; route dữ liệu sẽ lỗi nếu container không có
+credentials/network/table đúng.
 
-## Docker và Lambda
+## Kiểm thử và kiểm tra
 
-`Dockerfile`:
+Module chưa có automated test. Kiểm tra syntax:
 
-- Dùng base image `public.ecr.aws/lambda/nodejs:22`.
-- Chỉ cài production dependencies bằng `npm ci --omit=dev`.
-- Copy thư mục `src` vào Lambda task root.
-- Dùng handler `src/handlers/query.handler`.
-
-`compose.yaml` build và chạy image `nomad-diary/location-catalog:latest` cho
-platform `linux/amd64`, map cổng local `9000` vào cổng Lambda `8080`.
-
-Hướng dẫn build image và các bước deploy thủ công hiện có nằm trong
-[`DEPLOY.md`](./DEPLOY.md).
-
-Khi cấu hình API Gateway, cả năm route trong bảng API phải trỏ về cùng Query
-Lambda integration. Nếu stage không bật auto-deploy, cần deploy lại stage sau
-khi thêm hoặc sửa route.
-
-## Kiểm tra source
-
-Module hiện không có automated test. Có thể chạy syntax check cho toàn bộ source:
-
-```powershell
-Get-ChildItem src -Recurse -Filter *.js |
-  ForEach-Object { node --check $_.FullName }
+```bash
+find src -name '*.js' -print0 | xargs -0 -n1 node --check
 ```
 
-Sau đó build container và gọi `/v1/health` như phần trên. Việc health check
-thành công không xác nhận IAM, schema/index hoặc dữ liệu thật trong DynamoDB.
+Sau đó build container và smoke test health. Để xác nhận IAM/schema/data, phải
+gọi thêm ít nhất một route DynamoDB.
 
-## Giới hạn cần lưu ý
+## Deploy
 
-- Region và tên bảng đang hard-code trong repository.
-- Chỉ có read API; module không tự tạo hoặc cập nhật catalog.
-- Không có endpoint lấy riêng chi tiết tỉnh hay phường/xã.
-- Province và ward list chưa có pagination.
-- Place response hiện chỉ trả `placeId`, `provinceCode`, `wardCode` và
-  `name`.
+Quy trình container image:
+
+1. Build `linux/amd64`.
+2. Smoke test local.
+3. Push image lên ECR.
+4. Tạo/cập nhật Lambda.
+5. Chờ update thành công.
+6. Cấu hình năm route API Gateway HTTP API v2.
+7. Test health và route DynamoDB.
+
+Chi tiết lệnh và IAM: [DEPLOY.md](DEPLOY.md).
+
+## Giới hạn hiện tại
+
+- Region/table hard-code.
+- Province và ward list không phân trang.
+- Place response chỉ có bốn field.
 - Search chỉ hỗ trợ prefix theo normalized name.
-- Regex trong `normalize.js` hiện chứa chuỗi mojibake `Ä‘`/`Ä`, nên ký tự
-  `đ`/`Đ` chưa được đổi chính xác thành `d`/`D`.
-- CORS, auth, rate limit, domain và route deployment không nằm trong source.
-- `LOG_LEVEL=info` có trong `compose.yaml`, nhưng source hiện không đọc biến
-  này.
-- Frontend/backend Nomad Diary hiện vẫn dùng API và dữ liệu địa điểm riêng; chưa
-  có code gọi Location Catalog Lambda.
+- CORS/auth/throttling nằm ngoài handler.
+- Không có IaC, importer, automated test hoặc rollback script.
+- `locationCatalogApi.listPlaces` ở frontend tự đi qua tất cả cursor page; với
+  ward rất lớn cần cân nhắc search/pagination tại UI.
+
+## Tài liệu liên quan
+
+- [Deploy Lambda](DEPLOY.md)
+- [Frontend](../front-end/README.md)
+- [Tổng quan repository](../README.md)
+- [Mục lục tài liệu](../docs/README.md)

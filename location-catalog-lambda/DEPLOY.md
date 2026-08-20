@@ -1,337 +1,248 @@
 # Deploy Location Catalog Lambda
 
-Tài liệu này mô tả quy trình thủ công để build, kiểm tra, push container image
-lên Amazon ECR, tạo/cập nhật Lambda và nối Lambda với API Gateway HTTP API.
+Quy trình thủ công để build container, push Amazon ECR, tạo/cập nhật Lambda và
+nối API Gateway HTTP API. Repo chưa có Infrastructure as Code; mọi lệnh AWS phải
+được kiểm tra đúng account/region trước khi chạy.
 
-Repo hiện không có Infrastructure as Code. Các tài nguyên ECR, IAM, Lambda,
-DynamoDB và API Gateway phải được tạo hoặc cấu hình bên ngoài source code.
+## Phạm vi và giá trị hiện tại
 
-## Giá trị đang được source code sử dụng
+| Thành phần | Giá trị |
+| --- | --- |
+| AWS Region | `ap-southeast-1` |
+| DynamoDB table | `LocationCatalog` |
+| ECR repository | `nomad-diary/location-catalog` |
+| Local image | `nomad-diary/location-catalog:latest` |
+| Lambda architecture | `x86_64` |
+| Handler | `src/handlers/query.handler` |
+| Container/local port | `8080` / `9000` |
 
-| Thành phần           | Giá trị                               |
-| -------------------- | ------------------------------------- |
-| AWS Region           | `ap-southeast-1`                      |
-| DynamoDB table       | `LocationCatalog`                     |
-| ECR repository       | `nomad-diary/location-catalog`        |
-| Local image          | `nomad-diary/location-catalog:latest` |
-| Lambda architecture  | `x86_64`                              |
-| Lambda handler       | `src/handlers/query.handler`          |
-| Container port       | `8080`                                |
-| Local published port | `9000`                                |
-
-Region và tên bảng đang hard-code trong
-`src/repositories/location-catalog.repository.js`. `LOG_LEVEL=info` có trong
-`compose.yaml`, nhưng source hiện không đọc biến này.
-
-Tên Lambda function, execution role, API ID, stage và domain không được khai báo
-trong repo; các phần dưới dùng biến hoặc placeholder cho những giá trị đó.
+Region/table đang hard-code trong repository source. Tên function, role, API,
+stage và domain là cấu hình hạ tầng bên ngoài repo.
 
 ## Điều kiện trước khi deploy
 
-- Docker Desktop đang chạy.
-- Docker Compose và Buildx khả dụng.
-- AWS CLI v2 đã được cấu hình credentials/profile.
-- Principal đang dùng có quyền thao tác ECR, Lambda, IAM và API Gateway phù hợp.
-- ECR repository và Lambda nằm cùng Region `ap-southeast-1`.
-- Bảng `LocationCatalog`, `GSI1`, `GSI2` và dữ liệu đã tồn tại.
-- Lambda execution role có quyền ghi CloudWatch Logs và đọc DynamoDB.
+- Docker, Compose và Buildx hoạt động.
+- AWS CLI v2 đã đăng nhập đúng profile.
+- Principal có quyền ECR/Lambda/IAM/API Gateway cần thiết.
+- ECR và Lambda ở `ap-southeast-1`.
+- `LocationCatalog`, `GSI1`, `GSI2` và dữ liệu đã tồn tại.
+- Lambda execution role ghi được CloudWatch Logs và đọc DynamoDB.
+- Source đã commit hoặc có image tag truy vết được.
 
-Kiểm tra identity trước khi chạy lệnh làm thay đổi AWS:
+## Khai báo biến triển khai
 
-```powershell
-$AwsRegion = "ap-southeast-1"
-$EcrRepository = "nomad-diary/location-catalog"
-$LocalImage = "nomad-diary/location-catalog:latest"
-$LambdaFunctionName = "location-catalog"
+Chạy trong shell từ thư mục `location-catalog-lambda`:
+
+```bash
+AWS_REGION="ap-southeast-1"
+ECR_REPOSITORY="nomad-diary/location-catalog"
+LOCAL_IMAGE="nomad-diary/location-catalog:latest"
+LAMBDA_FUNCTION_NAME="location-catalog"
+IMAGE_TAG="$(git rev-parse --short HEAD)"
 
 aws sts get-caller-identity
+AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
 
-$AwsAccountId = aws sts get-caller-identity `
-  --query Account `
-  --output text
-
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($AwsAccountId)) {
-  throw "Không lấy được AWS account ID."
-}
-
-$EcrRegistry = "${AwsAccountId}.dkr.ecr.${AwsRegion}.amazonaws.com"
-$ImageUri = "${EcrRegistry}/${EcrRepository}:latest"
-
-Write-Output "Account: $AwsAccountId"
-Write-Output "Region: $AwsRegion"
-Write-Output "Image: $ImageUri"
+printf 'Account: %s\nRegion: %s\nImage: %s\n' \
+  "$AWS_ACCOUNT_ID" "$AWS_REGION" "$IMAGE_URI"
 ```
 
 Nếu dùng named profile, thêm `--profile <profile-name>` nhất quán vào mọi lệnh
-`aws`, bao gồm cả lệnh `get-login-password`.
+`aws`, kể cả login ECR. Không tiếp tục nếu identity/account không đúng.
 
 ## 1. Kiểm tra ECR repository
 
-```powershell
-aws ecr describe-repositories `
-  --repository-names $EcrRepository `
-  --region $AwsRegion
+```bash
+aws ecr describe-repositories \
+  --repository-names "$ECR_REPOSITORY" \
+  --region "$AWS_REGION"
 ```
 
-Nếu repository chưa tồn tại, tạo một lần:
+Chỉ tạo nếu chưa tồn tại:
 
-```powershell
-aws ecr create-repository `
-  --repository-name $EcrRepository `
-  --image-scanning-configuration scanOnPush=true `
-  --region $AwsRegion
+```bash
+aws ecr create-repository \
+  --repository-name "$ECR_REPOSITORY" \
+  --image-scanning-configuration scanOnPush=true \
+  --region "$AWS_REGION"
 ```
 
-Không chạy lệnh tạo lại nếu repository đã có.
+## 2. Kiểm tra source
 
-## 2. Build image Linux AMD64
-
-```powershell
-cd D:\hub\nomad-diary\location-catalog-lambda
+```bash
+npm ci
+find src -name '*.js' -print0 | xargs -0 -n1 node --check
 ```
 
-`compose.yaml` hiện khai báo:
+Module chưa có automated test. Syntax check không thay thế smoke test hoặc test
+DynamoDB.
 
-```yaml
-services:
-    api:
-        image: nomad-diary/location-catalog:latest
-        platform: linux/amd64
-        build:
-            context: .
-            dockerfile: Dockerfile
-            platforms:
-                - linux/amd64
-        environment:
-            LOG_LEVEL: info
-        ports:
-            - "9000:8080"
+## 3. Build image Linux AMD64
+
+```bash
+BUILDX_NO_DEFAULT_ATTESTATIONS=1 docker compose build
 ```
 
-Trên môi trường Docker Compose đang dùng cho project, tắt provenance mặc định
-trước khi build để image tương thích Lambda:
+`compose.yaml` đặt platform `linux/amd64`. Lambda function chỉ nhận một
+architecture, không dùng multi-architecture manifest.
 
-```powershell
-$env:BUILDX_NO_DEFAULT_ATTESTATIONS = "1"
-docker compose build
+Kiểm tra image:
+
+```bash
+docker image inspect "$LOCAL_IMAGE" \
+  --format 'name={{index .RepoTags 0}} architecture={{.Architecture}} os={{.Os}} size={{.Size}}'
 ```
 
-Image phải là Linux single-architecture `amd64`; Lambda không nhận
-multi-architecture container image cho một function.
-
-## 3. Kiểm tra image local
-
-```powershell
-docker images nomad-diary/location-catalog
-
-docker image inspect $LocalImage `
-  --format 'name={{index .RepoTags 0}} architecture={{.Architecture}} os={{.Os}} size={{.Size}} bytes'
-```
-
-Kết quả cần có dạng:
-
-```text
-name=nomad-diary/location-catalog:latest architecture=amd64 os=linux
-```
+Kết quả cần có `architecture=amd64 os=linux`.
 
 ## 4. Smoke test local
 
-Khởi động Lambda Runtime Interface Emulator:
+Khởi động Runtime Interface Emulator:
 
-```powershell
+```bash
 docker compose up
 ```
 
-Mở PowerShell khác và gọi health check:
+Từ terminal khác:
 
-```powershell
-$eventBody = @{
-  version = "2.0"
-  rawPath = "/v1/health"
-  requestContext = @{
-    requestId = "local-health"
-    http = @{
-      method = "GET"
-      path = "/v1/health"
+```bash
+curl -sS \
+  -X POST \
+  'http://localhost:9000/2015-03-31/functions/function/invocations' \
+  -H 'content-type: application/json' \
+  -d '{
+    "version": "2.0",
+    "rawPath": "/v1/health",
+    "requestContext": {
+      "requestId": "local-health",
+      "http": { "method": "GET", "path": "/v1/health" }
     }
-  }
-} | ConvertTo-Json -Depth 5
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri "http://localhost:9000/2015-03-31/functions/function/invocations" `
-  -ContentType "application/json" `
-  -Body $eventBody
+  }'
 ```
 
-Lambda Runtime Interface Emulator trả về Lambda proxy envelope. Trường `body`
-là JSON string; sau khi parse phải chứa:
+Lambda proxy envelope phải có `statusCode: 200`; JSON string trong `body`
+chứa:
 
 ```json
 {
-    "data": {
-        "service": "location-catalog",
-        "status": "ok"
-    }
+  "data": {
+    "service": "location-catalog",
+    "status": "ok"
+  }
 }
 ```
 
-`/v1/health` không gọi DynamoDB. Health thành công chỉ xác nhận container và
-handler chạy được.
-
-Có thể tạo event cho route địa điểm:
-
-```powershell
-$eventBody = @{
-  version = "2.0"
-  rawPath = "/v1/provinces/48/wards/20242/places"
-  queryStringParameters = @{
-    search = "cau"
-    featured = "true"
-    limit = "20"
-  }
-  requestContext = @{
-    requestId = "local-places"
-    http = @{
-      method = "GET"
-      path = "/v1/provinces/48/wards/20242/places"
-    }
-  }
-} | ConvertTo-Json -Depth 5
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri "http://localhost:9000/2015-03-31/functions/function/invocations" `
-  -ContentType "application/json" `
-  -Body $eventBody
-```
-
-Tuy nhiên, `compose.yaml` hiện không mount AWS credentials và không cấu hình
-DynamoDB Local. Route dữ liệu sẽ trả `500 INTERNAL_ERROR` nếu AWS SDK trong
-container không lấy được credentials, không truy cập được bảng hoặc schema/index
-không đúng.
+Health không gọi DynamoDB. Compose không mount AWS credentials hoặc DynamoDB
+Local, vì vậy route data chỉ thành công nếu container được cấp credential và
+network phù hợp.
 
 Dừng container:
 
-```powershell
+```bash
 docker compose down
 ```
 
-## 5. Login, tag và push lên ECR
+## 5. Login và push ECR
 
-Đăng nhập Docker vào đúng registry:
+```bash
+aws ecr get-login-password --region "$AWS_REGION" \
+  | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
-```powershell
-aws ecr get-login-password --region $AwsRegion |
-  docker login `
-    --username AWS `
-    --password-stdin $EcrRegistry
+docker tag "$LOCAL_IMAGE" "$IMAGE_URI"
+docker push "$IMAGE_URI"
 ```
 
-Tag image local bằng URI đầy đủ của ECR:
+Kiểm tra image:
 
-```powershell
-docker tag $LocalImage $ImageUri
+```bash
+aws ecr describe-images \
+  --repository-name "$ECR_REPOSITORY" \
+  --image-ids "imageTag=$IMAGE_TAG" \
+  --region "$AWS_REGION"
 ```
 
-Push image:
+Dùng tag bất biến theo commit/release thay vì chỉ `latest` để audit và rollback.
 
-```powershell
-docker push $ImageUri
-```
+## 6. Execution role
 
-Kiểm tra tag đã có trên ECR:
+Trust policy phải cho `lambda.amazonaws.com` assume role. Gắn
+`AWSLambdaBasicExecutionRole` hoặc quyền log tương đương.
 
-```powershell
-aws ecr describe-images `
-  --repository-name $EcrRepository `
-  --image-ids imageTag=latest `
-  --region $AwsRegion
-```
-
-## 6. Cấu hình Lambda
-
-### Execution role
-
-Execution role cần trust principal `lambda.amazonaws.com`. Gắn
-`AWSLambdaBasicExecutionRole` hoặc policy tương đương để ghi log.
-
-Quyền DynamoDB tối thiểu của Query Lambda:
+Policy DynamoDB tối thiểu:
 
 ```json
 {
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": ["dynamodb:GetItem", "dynamodb:Query"],
-            "Resource": [
-                "arn:aws:dynamodb:ap-southeast-1:AWS_ACCOUNT_ID:table/LocationCatalog",
-                "arn:aws:dynamodb:ap-southeast-1:AWS_ACCOUNT_ID:table/LocationCatalog/index/*"
-            ]
-        }
-    ]
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:Query"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:ap-southeast-1:<account-id>:table/LocationCatalog",
+        "arn:aws:dynamodb:ap-southeast-1:<account-id>:table/LocationCatalog/index/*"
+      ]
+    }
+  ]
 }
 ```
 
-Thay `AWS_ACCOUNT_ID` bằng account thực tế. Source không cần quyền ghi
-DynamoDB.
+Không cấp Scan hoặc quyền ghi vì source không dùng.
 
-### Tạo function lần đầu
+## 7. Tạo hoặc cập nhật Lambda
 
-Đặt ARN của execution role đã tạo:
+### Tạo lần đầu
 
-```powershell
-$ExecutionRoleArn = "arn:aws:iam::${AwsAccountId}:role/<lambda-execution-role>"
+```bash
+EXECUTION_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/<lambda-execution-role>"
+
+aws lambda create-function \
+  --function-name "$LAMBDA_FUNCTION_NAME" \
+  --package-type Image \
+  --code "ImageUri=$IMAGE_URI" \
+  --role "$EXECUTION_ROLE_ARN" \
+  --architectures x86_64 \
+  --region "$AWS_REGION"
 ```
 
-Sau khi thay placeholder role name:
+Timeout, memory, reserved concurrency và log retention phải được quyết định theo
+môi trường; repo chưa quy định giá trị.
 
-```powershell
-aws lambda create-function `
-  --function-name $LambdaFunctionName `
-  --package-type Image `
-  --code "ImageUri=$ImageUri" `
-  --role $ExecutionRoleArn `
-  --architectures x86_64 `
-  --region $AwsRegion
+### Cập nhật function
+
+```bash
+aws lambda update-function-code \
+  --function-name "$LAMBDA_FUNCTION_NAME" \
+  --image-uri "$IMAGE_URI" \
+  --region "$AWS_REGION"
 ```
 
-Timeout, memory, reserved concurrency và log retention chưa được quy định trong
-repo; cấu hình chúng theo môi trường triển khai.
+Push ECR không tự cập nhật Lambda. Lambda resolve tag thành digest tại thời điểm
+update.
 
-### Cập nhật function đã tồn tại
+Chờ hoàn tất:
 
-```powershell
-aws lambda update-function-code `
-  --function-name $LambdaFunctionName `
-  --image-uri $ImageUri `
-  --region $AwsRegion
+```bash
+aws lambda wait function-updated-v2 \
+  --function-name "$LAMBDA_FUNCTION_NAME" \
+  --region "$AWS_REGION"
+
+aws lambda get-function-configuration \
+  --function-name "$LAMBDA_FUNCTION_NAME" \
+  --query '{State:State,LastUpdateStatus:LastUpdateStatus,RevisionId:RevisionId}' \
+  --region "$AWS_REGION"
 ```
 
-Push lại tag `latest` lên ECR **không tự cập nhật Lambda**. Lambda resolve tag
-thành image digest tại thời điểm deploy, vì vậy mỗi lần push image mới vẫn phải
-chạy `update-function-code`.
+Chỉ tiếp tục khi `State=Active` và `LastUpdateStatus=Successful`.
 
-Kiểm tra trạng thái update:
+## 8. API Gateway HTTP API
 
-```powershell
-aws lambda get-function-configuration `
-  --function-name $LambdaFunctionName `
-  --query '{State:State,LastUpdateStatus:LastUpdateStatus,RevisionId:RevisionId}' `
-  --region $AwsRegion
-```
-
-Chỉ tiếp tục khi `State` là `Active` và `LastUpdateStatus` là
-`Successful`.
-
-## 7. Cấu hình API Gateway HTTP API
-
-Tạo một Lambda proxy integration trỏ đến function trên với payload format
-version `2.0`. Handler đọc `rawPath`,
-`requestContext.http.method` và `queryStringParameters` của format này.
-
-Năm route phải trỏ đến cùng integration:
+Tạo Lambda proxy integration với payload format `2.0`. Tất cả route trỏ tới
+cùng function:
 
 ```text
 GET /v1/health
@@ -341,83 +252,85 @@ GET /v1/provinces/{provinceCode}/wards/{wardCode}/places
 GET /v1/provinces/{provinceCode}/places/{placeId}
 ```
 
-API Gateway phải có quyền invoke Lambda. Khi tạo integration bằng AWS Console,
-Console thường tạo permission tương ứng; nếu cấu hình bằng CLI/IaC thì phải kiểm
-tra resource-based policy của function.
+Handler đọc `rawPath`, `requestContext.http.method` và
+`queryStringParameters`. API Gateway cần permission invoke Lambda.
 
-Nếu frontend gọi Catalog API trực tiếp, cấu hình CORS ở API Gateway cho đúng
-frontend origin, method `GET` và các header cần thiết. Handler không tự thêm
-CORS header.
+Nếu frontend gọi trực tiếp:
 
-Nếu stage không bật auto-deploy, deploy lại stage sau khi tạo hoặc sửa route.
+- cho phép đúng frontend origin;
+- method `GET`;
+- header `Accept` cần thiết;
+- deploy lại stage nếu auto-deploy tắt.
 
-## 8. Kiểm tra sau deploy
+Handler không tự thêm CORS header.
 
-### Gọi Lambda trực tiếp
+## 9. Kiểm tra sau deploy
 
-```powershell
-$payload = @{
-  version = "2.0"
-  rawPath = "/v1/health"
-  requestContext = @{
-    requestId = "deploy-health"
-    http = @{
-      method = "GET"
-      path = "/v1/health"
+### Invoke Lambda trực tiếp
+
+```bash
+aws lambda invoke \
+  --function-name "$LAMBDA_FUNCTION_NAME" \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{
+    "version":"2.0",
+    "rawPath":"/v1/health",
+    "requestContext":{
+      "requestId":"deploy-health",
+      "http":{"method":"GET","path":"/v1/health"}
     }
-  }
-} | ConvertTo-Json -Depth 5 -Compress
+  }' \
+  --region "$AWS_REGION" \
+  /tmp/location-catalog-response.json
 
-aws lambda invoke `
-  --function-name $LambdaFunctionName `
-  --cli-binary-format raw-in-base64-out `
-  --payload $payload `
-  --region $AwsRegion `
-  response.json
-
-Get-Content -Raw -Encoding UTF8 response.json
+sed -n '1,120p' /tmp/location-catalog-response.json
 ```
 
-### Gọi qua API Gateway
+### Qua API Gateway/custom domain
 
-```powershell
-$ApiBaseUrl = "https://<api-id>.execute-api.ap-southeast-1.amazonaws.com"
+```bash
+CATALOG_BASE_URL="https://<api-domain>"
 
-Invoke-RestMethod `
-  -Method Get `
-  -Uri "$ApiBaseUrl/v1/health"
+curl --fail-with-body "$CATALOG_BASE_URL/v1/health"
+curl --fail-with-body "$CATALOG_BASE_URL/v1/provinces"
 ```
 
-Sau health check, gọi ít nhất:
+Health thành công không chứng minh quyền DynamoDB. Nếu route provinces lỗi
+`500`, kiểm tra CloudWatch Logs, role, region/table, key schema, GSI và item
+`ACTIVE`.
 
-```powershell
-Invoke-RestMethod `
-  -Method Get `
-  -Uri "$ApiBaseUrl/v1/provinces"
+## Rollback
+
+Giữ image tag/digest của bản đã ổn định. Rollback code bằng cách cập nhật Lambda
+về URI image cũ:
+
+```bash
+PREVIOUS_IMAGE_URI="<registry>/<repository>:<previous-tag>"
+
+aws lambda update-function-code \
+  --function-name "$LAMBDA_FUNCTION_NAME" \
+  --image-uri "$PREVIOUS_IMAGE_URI" \
+  --region "$AWS_REGION"
 ```
 
-Health có thể thành công trong khi route dữ liệu thất bại. Nếu route dữ liệu trả
-`500`, kiểm tra CloudWatch Logs, execution role, tên bảng, Region, key schema,
-`GSI1`, `GSI2` và dữ liệu `ACTIVE`.
+Chờ function updated rồi chạy lại cả health và route DynamoDB. Nếu thay đổi liên
+quan schema/data, rollback image có thể không đủ.
 
-## 9. Chu kỳ deploy bản cập nhật
+## Checklist mỗi release
 
-Mỗi lần source thay đổi:
+- [ ] AWS identity và region đúng.
+- [ ] Source/syntax check thành công.
+- [ ] Image `linux/amd64` build thành công.
+- [ ] Local health smoke test thành công.
+- [ ] Image dùng tag truy vết được và đã scan/push ECR.
+- [ ] Lambda update hoàn tất.
+- [ ] API Gateway health thành công.
+- [ ] Ít nhất một route DynamoDB thành công.
+- [ ] CloudWatch Logs không có lỗi mới.
+- [ ] Ghi nhận image URI/digest để rollback.
 
-1. Chạy syntax check và các test hiện có.
-2. Build lại image `linux/amd64`.
-3. Smoke test `/v1/health` ở local.
-4. Tag và push image lên ECR.
-5. Chạy `aws lambda update-function-code`.
-6. Chờ `LastUpdateStatus = Successful`.
-7. Kiểm tra health và ít nhất một route DynamoDB qua API Gateway.
+## Tài liệu liên quan
 
-Module hiện không có automated test, script deploy hay rollback. Giữ lại image
-tag/digest ổn định nếu cần quay về phiên bản trước; không chỉ phụ thuộc vào
-`latest`.
-
-## Tài liệu AWS tham khảo
-
-- [Create a Lambda function using a container image](https://docs.aws.amazon.com/lambda/latest/dg/images-create.html)
-- [Push a Docker image to Amazon ECR](https://docs.aws.amazon.com/AmazonECR/latest/userguide/docker-push-ecr-image.html)
-- [Lambda proxy integrations for API Gateway HTTP APIs](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-develop-integrations-lambda.html)
+- [Location Catalog](README.md)
+- [Tổng quan repository](../README.md)
+- [Mục lục tài liệu](../docs/README.md)

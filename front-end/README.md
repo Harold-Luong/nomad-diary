@@ -1,264 +1,263 @@
 # Nomad Diary Frontend
 
-Frontend Vue 3 được khởi tạo bằng Vite và kết nối tới Nomad Diary API.
+Ứng dụng web Vue 3 cho Nomad Diary. Module quản lý giao diện, trạng thái phía
+client, auth session trong memory, upload ảnh và kết nối đồng thời tới Backend
+API cùng Location Catalog API.
+
+## Vai trò và phạm vi
+
+- Đăng ký, đăng nhập, hồ sơ và đổi mật khẩu.
+- Danh sách, tạo, sửa và xem chi tiết chuyến đi.
+- Quản lý trip stop từ catalog hoặc địa điểm nhập thủ công.
+- Quản lý ảnh, EXIF, tiến độ upload và review.
+- Hiển thị thống kê tỉnh/thành đã ghé.
+- Khôi phục phiên bằng refresh cookie và đồng bộ session giữa các tab.
+
+Frontend không lưu refresh token, không truy cập database và không chứa AWS/JWT
+secret.
+
+## Luồng kết nối
+
+```text
+Vue views
+   |
+   +--> Pinia stores --> src/api --> src/services/api.js --> Backend API
+   |                                                |
+   |                                                +--> cookie credentials
+   |
+   +--> locationCatalogApi -----------------------------> Catalog API
+   |
+   +--> useImageUpload --> presigned URL ----------------> Amazon S3
+```
+
+## Cấu trúc thư mục
+
+```text
+front-end/
+├── src/
+│   ├── api/          # Hàm gọi API theo domain
+│   ├── components/   # Component dùng lại
+│   ├── composables/  # Logic composition dùng lại
+│   ├── constants/    # Route, domain enum và client constants
+│   ├── router/       # Route table và navigation guards
+│   ├── schemas/      # Zod validation phía client
+│   ├── services/     # HTTP client và auth session/tab sync
+│   ├── stores/       # Pinia stores
+│   ├── utils/        # Date, number, string, error, places và EXIF
+│   ├── views/        # Route-level pages
+│   ├── workers/      # Web Worker đọc metadata ảnh
+│   ├── App.vue
+│   └── main.js
+├── tests/
+├── .env.development
+├── package.json
+└── vite.config.js
+```
 
 ## Yêu cầu
 
-- Node.js 20.19+ hoặc 22.12+
-- Backend chạy tại `http://localhost:3000`
+- Node.js 20.19+ hoặc 22.12+.
+- npm.
+- Backend API đang chạy nếu kiểm thử luồng nghiệp vụ local.
+- Trình duyệt hỗ trợ ES modules; `BroadcastChannel` giúp đồng bộ tab nhưng
+  frontend vẫn có fallback khôi phục bằng refresh cookie.
 
 ## Cài đặt
 
-```powershell
-cd "D:\Nomad Diary\nomad-diary\front-end"
-npm.cmd install
+Từ thư mục gốc repository:
+
+```bash
+cd front-end
+npm install
 ```
 
-## Chạy development
+## Cấu hình môi trường
 
-Khởi động backend trước:
-
-```powershell
-cd "D:\Nomad Diary\nomad-diary\back-end"
-npm.cmd run dev
-```
-
-Mở terminal khác và khởi động frontend:
-
-```powershell
-cd "D:\Nomad Diary\nomad-diary\front-end"
-npm.cmd run dev
-```
-
-Truy cập `http://127.0.0.1:5173`.
-
-Trong development, frontend gọi trực tiếp backend tại `http://localhost:3000`.
-Ví dụ endpoint đăng nhập là `http://localhost:3000/auth/login`; backend không dùng
-tiền tố `/api`.
-
-## Environment variables
-
-Frontend dùng file môi trường theo mode chuẩn của Vite:
-
-- `development` đọc `.env.development` để gọi backend local. Test cũng chạy
-  bằng mode này.
-- `production` đọc `.env` để gọi backend đã deploy.
+Vite đọc `.env.development` khi chạy `npm run dev` và test. Production có thể
+dùng `.env.production` hoặc biến môi trường của hệ thống build:
 
 ```env
 VITE_API_BASE_URL=http://localhost:3000
+VITE_LOCATION_CATALOG_BASE_URL=https://locations-api.nomad-diary.site
 VITE_SWAGGER_URL=http://localhost:3000/api-docs
 ```
 
-- `VITE_API_BASE_URL`: base URL được API client sử dụng.
-- `VITE_SWAGGER_URL`: đường dẫn Swagger hiển thị trên trang khởi động.
+| Biến | Mục đích | Giá trị mặc định trong source |
+| --- | --- | --- |
+| `VITE_API_BASE_URL` | Backend REST API | Local: `http://localhost:3000`; production: `https://api.nomad-diary.site` |
+| `VITE_LOCATION_CATALOG_BASE_URL` | Location Catalog public API | `https://locations-api.nomad-diary.site` |
+| `VITE_SWAGGER_URL` | Còn trong file env nhưng source hiện chưa đọc | Không có consumer |
 
-Production mặc định gọi `https://api.nomad-diary.site`. Có thể ghi đè giá trị
-này bằng `VITE_API_BASE_URL` trong hệ thống build/deploy.
+Không thêm password, JWT secret, AWS credential hoặc secret bất kỳ vào biến
+`VITE_*`; Vite đưa chúng vào JavaScript bundle công khai.
 
-Biến bắt đầu bằng `VITE_` được đưa vào frontend bundle, vì vậy không đặt mật
-khẩu, JWT secret hoặc thông tin bí mật trong các biến này.
+## Chạy local
+
+Khởi động backend trước, sau đó:
+
+```bash
+cd front-end
+npm run dev
+```
+
+Vite in URL truy cập ra terminal, thường là `http://localhost:5173`. Backend
+không có prefix `/api`; ví dụ endpoint login là `/auth/login`.
+
+## Authentication và session
+
+### Nơi lưu token
+
+- Refresh token chỉ nằm trong cookie do backend đặt: `HttpOnly`,
+  `SameSite=Strict`, và `Secure` ở production.
+- Access token và thông tin user chỉ nằm trong Pinia/memory.
+- Store chủ động xóa key legacy `nomad-diary.auth-session` khỏi
+  `localStorage` và `sessionStorage`.
+
+### Khởi tạo và refresh
+
+Khi ứng dụng khởi động:
+
+1. Auth store xóa session legacy và access token cũ trong memory.
+2. Tab mới thử xin snapshot từ tab đang đăng nhập cùng origin.
+3. Nếu chưa có session, frontend gọi `POST /auth/refresh-token` kèm cookie.
+4. Khi private request trả `401`, client refresh một lần rồi retry request.
+5. Các tab/request đồng thời dùng shared lock để tránh rotate cùng refresh token
+   nhiều lần.
+6. Nếu refresh thất bại, private state được xóa và router chuyển về login.
+
+Mọi request backend dùng `credentials: 'include'`. Vì vậy production cần:
+
+- frontend/backend chạy qua HTTPS;
+- backend cho phép đúng frontend origin;
+- CORS bật credentials;
+- cookie domain/path phù hợp. Cookie hiện dùng path `/auth`.
 
 ## API client
 
-HTTP client dùng chung nằm tại `src/services/api.js`. Các hàm nghiệp vụ được
-chia theo module trong `src/api/`:
+Các module tại `src/api/`:
 
-| File | Chức năng |
+| File | Phạm vi |
 | --- | --- |
-| `api/auth.js` | Register, login, refresh, logout, profile và account |
-| `api/health.js` | Liveness và database readiness |
-| `api/images.js` | List, detail, create, update và delete ảnh hành trình |
-| `api/provinces.js` | List, visited list, detail và places theo tỉnh |
-| `api/trips.js` | List, detail, create, update và delete trip |
-| `api/trip-stops.js` | List, create, update, delete và reorder stop |
-| `api/reviews.js` | Get, upsert và delete review |
+| `auth.js` | Register, login, refresh, logout, profile và account |
+| `health.js` | Liveness và readiness |
+| `images.js` | CRUD metadata ảnh |
+| `location-catalog.js` | Tỉnh, phường/xã và địa điểm từ Lambda |
+| `places.js` | Địa điểm đã lưu trong PostgreSQL |
+| `provinces.js` | Tỉnh đã lưu và thống kê đã ghé |
+| `reviews.js` | Get, upsert và delete review |
+| `trip-stops.js` | List, CRUD và reorder stop |
+| `trips.js` | List và CRUD trip |
+| `uploads.js` | Presigned URL và upload trực tiếp lên S3 |
 
-Upload ảnh được xử lý trong `api/uploads.js`: xin presigned URL và PUT file trực tiếp
-lên S3 bằng Axios để nhận tiến độ tải theo phần trăm. Form hồ sơ và form chuyến đi dùng file picker
-cho avatar/ảnh bìa. Database nhận `avatarObjectKey` hoặc `thumbnailObjectKey`;
-presigned URL tạm thời không được lưu.
-
-Màn quản lý ảnh hành trình đọc EXIF riêng cho từng file bằng `exifr`: tự lấy thời
-gian chụp, GPS và kích thước. Chỉ ảnh không có ngày chụp mới yêu cầu người dùng
-chọn ngày thủ công; GPS có thể được bỏ trước khi lưu metadata qua `POST /images`.
-
-Ví dụ gọi trực tiếp API module:
-
-```js
-import { authApi, tripsApi } from '@/api/index.js'
-import { setAccessToken } from '@/services/api.js'
-
-const result = await authApi.login({
-  identifier: 'nomad@example.com',
-  password: 'Password123!',
-})
-
-setAccessToken(result.data.accessToken)
-
-const trips = await tripsApi.list({
-  page: 1,
-  pageSize: 20,
-  status: 3,
-})
-```
-
-HTTP client tự thêm Bearer token sau khi gọi `setAccessToken`. Lỗi backend được
-chuyển thành `ApiError` với `code`, `message`, `details` và `status`.
+`src/services/api.js` chuẩn hóa query, Bearer token, cookie credentials, lỗi
+`ApiError`, refresh-on-`401` và retry. Location Catalog có base URL riêng và
+không gửi auth token.
 
 ## Pinia stores
 
-Pinia được đăng ký trong `src/main.js`. Các store toàn cục nằm trong
-`src/stores/`:
-
-| Store | State và actions chính |
+| Store | Trách nhiệm |
 | --- | --- |
-| `useAuthStore` | User, token, register, login, refresh, logout và profile |
-| `useTripsStore` | Danh sách, phân trang, trip hiện tại và CRUD |
+| `useAuthStore` | User, access token, initialize, login, refresh, logout và profile |
+| `useTripsStore` | Danh sách, phân trang, current trip và CRUD |
 | `useTripStopsStore` | Điểm dừng theo trip, CRUD và reorder |
-| `useReviewsStore` | Review theo trip stop, get, save và delete |
+| `useReviewsStore` | Review theo trip stop |
+| `useImagesStore` | Danh sách và metadata ảnh |
+| `useProvincesStore` | Tỉnh, địa điểm và thống kê đã ghé |
 
-Ví dụ trong Vue component:
+Auth store xóa toàn bộ private store khi logout, đổi user hoặc session không còn
+hợp lệ.
 
-```vue
-<script setup>
-import { onMounted } from 'vue'
-import { storeToRefs } from 'pinia'
-import { useTripsStore } from '@/stores/trips.js'
+## Routes
 
-const tripsStore = useTripsStore()
-const { items, meta, loading, error } = storeToRefs(tripsStore)
-
-onMounted(() => {
-  tripsStore.fetchTrips({ page: 1, pageSize: 20, status: 3 })
-})
-</script>
-```
-
-Auth store chỉ giữ user và access token trong bộ nhớ; không ghi dữ liệu xác thực vào
-Web Storage. Refresh token nằm trong cookie `HttpOnly`, `Secure`, `SameSite=Strict`
-do backend quản lý. Khi reload hoặc mở lại trình duyệt, frontend khôi phục phiên bằng
-cookie và đồng bộ các tab cùng origin qua `BroadcastChannel`. Khi private request trả về `401`, HTTP
-client gọi refresh token một lần, cập nhật session rồi retry request ban đầu.
-Các request `401` đồng thời dùng chung một refresh promise để tránh xoay token
-nhiều lần. Nếu refresh thất bại, session được xóa và router chuyển về trang
-đăng nhập. Không lưu JWT secret trong frontend.
-
-## Vue Router
-
-Router được khai báo trong `src/router/` và đăng ký tại `src/main.js`:
-
-| Route | Name | Quyền truy cập |
+| Path | Name | Truy cập |
 | --- | --- | --- |
 | `/` | `home` | Công khai |
-| `/login` | `login` | Chỉ khi chưa đăng nhập |
-| `/register` | `register` | Chỉ khi chưa đăng nhập |
+| `/login` | `login` | Guest only |
+| `/register` | `register` | Guest only |
 | `/trips` | `trips` | Đã đăng nhập |
 | `/trips/new` | `trip-create` | Đã đăng nhập |
 | `/trips/:id` | `trip-detail` | Đã đăng nhập |
+| `/trips/:id/images` | `trip-images` | Đã đăng nhập |
 | `/trips/:id/edit` | `trip-edit` | Đã đăng nhập |
 | `/trip-stops/:tripStopId/review` | `trip-stop-review` | Đã đăng nhập |
+| `/provinces` | `provinces` | Đã đăng nhập |
+| `/provinces/:id` | `province-detail` | Đã đăng nhập |
 | `/profile` | `profile` | Đã đăng nhập |
 | `/profile/change-password` | `change-password` | Đã đăng nhập |
 | `/:pathMatch(.*)*` | `not-found` | Công khai |
 
-Route có `meta.requiresAuth` tự chuyển về `/login?redirect=...` nếu chưa có
-session. Route có `meta.guestOnly` tự chuyển về danh sách trips nếu user đã
-đăng nhập.
+Route `requiresAuth` chờ auth initialize rồi redirect về
+`/login?redirect=...` nếu không khôi phục được session. Route `guestOnly`
+đưa user đã đăng nhập về danh sách trips.
 
-## Shared constants
+## Validation, địa điểm và ảnh
 
-Các hằng số dùng chung nằm trong `src/constants/`:
+- Zod schema trong `src/schemas/` báo lỗi form trước khi gửi request; backend
+  vẫn là lớp validation cuối cùng.
+- `src/utils/places.js` hợp nhất kết quả Location Catalog và địa điểm đã lưu,
+  ưu tiên bản ghi PostgreSQL có cùng `catalogPlaceId`.
+- `exifr` và Web Worker đọc ngày chụp, GPS, kích thước ảnh theo từng file.
+- Chỉ ảnh thiếu ngày chụp mới yêu cầu nhập ngày thủ công; người dùng có thể bỏ
+  GPS trước khi lưu.
+- Presigned URL chỉ dùng để PUT file lên S3, không được lưu vào database.
 
-| File | Nội dung |
-| --- | --- |
-| `constants/app.js` | Storage key, Bearer scheme, pagination và client error code |
-| `constants/domain.js` | Trip status, revisit status, danh sách value và option/label tương ứng |
-| `constants/routes.js` | Tên và path của toàn bộ Vue Router routes |
-| `constants/index.js` | Export tập trung các constants |
+## Kiểm thử
 
-Ví dụ:
-
-```js
-import {
-  ROUTE_NAME,
-  TRIP_STATUS,
-  TRIP_STATUS_OPTIONS,
-} from '@/constants/index.js'
-
-router.push({ name: ROUTE_NAME.TRIPS })
-
-const filters = {
-  status: TRIP_STATUS.COMPLETED,
-}
+```bash
+cd front-end
+npm test
 ```
 
-Các object và option list đều dùng `Object.freeze()` để tránh bị thay đổi trong
-runtime.
+Vitest hiện bao phủ API helper, auth recovery/tab sync, constants, router, Zod
+schema, Pinia stores, EXIF và utilities. Test chạy một lần bằng mode
+`development`.
 
-## Utils, validation và composables
+## Build và triển khai
 
-Frontend dùng Zod để kiểm tra và chuẩn hóa dữ liệu trước khi gọi API. Backend
-vẫn là lớp validation cuối cùng; schema frontend giúp báo lỗi ngay tại từng
-trường của form.
-
-| Thư mục/file | Nội dung |
-| --- | --- |
-| `src/utils/date.js` | Kiểm tra, định dạng ngày/giờ và giá trị cho `input[type=date]` |
-| `src/utils/number.js` | Định dạng số, chuyển số nguyên và giới hạn khoảng giá trị |
-| `src/utils/string.js` | Chuẩn hóa chuỗi rỗng, tạo slug tiếng Việt và rút gọn chuỗi |
-| `src/utils/error.js` | Chuẩn hóa lỗi API và lấy lỗi theo field |
-| `src/utils/validation.js` | Chạy Zod schema và chuyển issues thành field errors |
-| `src/schemas/` | Schema cho auth, trips, trip stops và reviews |
-| `src/composables/useFormValidation.js` | State và hàm validation dùng chung cho Vue forms |
-
-Ví dụ dùng utility độc lập:
-
-```js
-import { formatDate, slugify, toInteger } from '@/utils/index.js'
-
-formatDate('2026-08-02') // 02/08/2026
-slugify('Đà Lạt mùa Hè') // da-lat-mua-he
-toInteger('3') // 3
+```bash
+cd front-end
+npm run build
+npm run preview
 ```
 
-Ví dụ validate trong component:
+Output production nằm trong `front-end/dist/`. Khi deploy static site lên S3:
 
-```vue
-<script setup>
-import { reactive } from 'vue'
-import { useFormValidation } from '@/composables/index.js'
-import { loginSchema } from '@/schemas/index.js'
-
-const form = reactive({ identifier: '', password: '' })
-const { validate, errorFor } = useFormValidation(loginSchema)
-
-async function submit() {
-  const payload = validate(form)
-  if (!payload) return
-
-  // payload đã được trim/normalize và có thể gửi tới store hoặc API module.
-}
-</script>
+```bash
+aws s3 sync dist/ s3://<frontend-bucket> --delete
+aws cloudfront create-invalidation --distribution-id <distribution-id> --paths '/*'
 ```
 
-Các form đăng nhập, đăng ký, hồ sơ, đổi mật khẩu, trip và review hiện đều dùng
-schema tương ứng. Thông báo validation được hiển thị bên dưới field trước khi
-request được gửi.
+`--delete` xóa asset cũ khỏi prefix đích, vì vậy phải kiểm tra đúng bucket trước
+khi chạy. CloudFront invalidation giúp HTML/source mới không bị cache cũ. Với
+Vue history mode, S3/CloudFront cần fallback route về `index.html`.
 
-## Test
+## Xử lý lỗi thường gặp
 
-```powershell
-npm.cmd test
-```
+### Reload hoặc tab mới bị yêu cầu đăng nhập
 
-Test kiểm tra URL/query, Bearer header, error mapping, state của Pinia stores,
-constants, router, utilities và toàn bộ schema validation phía frontend.
+Kiểm tra request `POST /auth/refresh-token` trong Network:
 
-## Build production
+- request có cookie `nomad_diary_refresh_token`;
+- frontend và backend đều HTTPS ở production;
+- response CORS cho đúng origin và credentials;
+- cookie không bị chặn bởi domain/path/SameSite;
+- frontend đang chạy đúng bundle mới sau CloudFront invalidation.
 
-```powershell
-npm.cmd run build
-npm.cmd run preview
-```
+### `BroadcastChannel ... could not be cloned`
 
-Output production được tạo trong thư mục `dist/`.
+Chỉ publish plain object có thể structured-clone. Không truyền Pinia proxy,
+`ref`, function, Error hoặc Promise. Session publisher hiện lấy snapshot gồm
+plain user/token fields trước khi gửi.
+
+### UI vẫn dùng source cũ sau deploy
+
+Kiểm tra file trong `dist/`, đồng bộ đúng S3 bucket, invalidation CloudFront và
+hard reload trình duyệt. Không sửa trực tiếp file trong `dist/`; luôn build lại
+từ source.
+
+## Tài liệu liên quan
+
+- [Tổng quan repository](../README.md)
+- [Mục lục tài liệu](../docs/README.md)
+- [Backend API](../back-end/README.md)
+- [Location Catalog](../location-catalog-lambda/README.md)
