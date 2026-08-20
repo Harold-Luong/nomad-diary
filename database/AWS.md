@@ -1,310 +1,219 @@
-# Hướng dẫn Setup PostgreSQL (psql) cho Nomad Diary
+# PostgreSQL trên Amazon RDS
 
-## 1. Thông tin hệ thống
+Hướng dẫn kết nối Nomad Diary tới PostgreSQL RDS bằng SSL, chạy migration và
+kiểm tra database sau thay đổi. Các lệnh dùng placeholder để tránh ghi endpoint,
+username hoặc credential production vào repository.
 
-Dự án sử dụng:
+## Phạm vi
 
-* PostgreSQL trên Amazon RDS
-* Database: `nomad_diary`
-* Schema chính: `nomad_diary`
-* User kết nối: `postgres`
-* Chứng chỉ SSL: `back-end/src/certs/global-bundle.pem`
+- Database mặc định: `nomad_diary`.
+- Schema ứng dụng: `nomad_diary`.
+- Region backend hiện dùng: `ap-southeast-1`.
+- CA bundle trong repo: `back-end/src/certs/global-bundle.pem`.
 
-> **Lưu ý**
->
-> * Dự án **không sử dụng schema mặc định `public`**.
-> * Toàn bộ bảng, view, function và trigger đều được tạo trong schema `nomad_diary`.
-> * Mọi kết nối tới RDS đều sử dụng SSL với chứng chỉ của AWS.
+Tài liệu này không tạo RDS instance, subnet group, Security Group, parameter
+group hoặc secret. Các tài nguyên đó phải tồn tại trước.
 
----
+## Điều kiện trước khi kết nối
 
-# 2. Kiểm tra chứng chỉ SSL
+- Máy chạy `psql` có network route tới RDS.
+- Security Group của RDS cho phép TCP 5432 từ đúng source.
+- DNS resolve được endpoint RDS.
+- Database user có quyền cần thiết.
+- CA bundle tồn tại và còn phù hợp.
+- Có snapshot/backup trước migration production.
 
-Sau khi clone project lên EC2, kiểm tra file chứng chỉ:
-
-```bash
-ls -l /home/ubuntu/nomad-diary/back-end/src/certs/global-bundle.pem
-```
-
-Nếu hiển thị thông tin file thì chứng chỉ đã sẵn sàng để sử dụng.
-
----
-
-# 3. Kết nối tới PostgreSQL
+Kiểm tra certificate từ thư mục gốc repository:
 
 ```bash
-psql \
-  --host=nomad-diary-db.c164ase8w3e1.ap-southeast-1.rds.amazonaws.com \
-  --port=5432 \
-  --username=postgres \
-  --dbname=nomad_diary \
-  "sslmode=verify-full sslrootcert=/home/ubuntu/nomad-diary/back-end/src/certs/global-bundle.pem"
+test -f back-end/src/certs/global-bundle.pem
 ```
 
-Sau khi nhập mật khẩu thành công sẽ xuất hiện:
+## Kết nối SSL
 
-```text
-nomad_diary=>
+Dùng một PostgreSQL connection string duy nhất:
+
+```bash
+psql "host=<rds-endpoint> port=5432 dbname=nomad_diary user=<db-user> sslmode=verify-full sslrootcert=$(pwd)/back-end/src/certs/global-bundle.pem"
 ```
 
----
+Nếu đang ở thư mục khác, thay `$(pwd)/...` bằng đường dẫn tuyệt đối tới CA
+bundle. `verify-full` kiểm tra cả CA và hostname, vì vậy `host` phải là
+endpoint DNS của RDS, không phải IP.
 
-# 4. Kiểm tra database hiện tại
+Không đưa password vào command line hoặc commit `.pgpass`. Để `psql` hỏi
+password hoặc cấu hình credential an toàn trên máy vận hành.
+
+## Xác nhận đúng target
+
+Chạy các lệnh read-only trước mọi migration:
 
 ```sql
 SELECT current_database();
-```
-
-Ví dụ:
-
-```text
- current_database
-------------------
- nomad_diary
-```
-
----
-
-# 5. Kiểm tra user hiện tại
-
-```sql
 SELECT current_user;
+SELECT inet_server_addr(), inet_server_port();
+SHOW ssl;
+SHOW search_path;
 ```
 
-Ví dụ:
-
-```text
- current_user
---------------
- postgres
-```
-
----
-
-# 6. Kiểm tra các schema
+Liệt kê schema:
 
 ```sql
-SELECT
-    schema_name
+SELECT schema_name
 FROM information_schema.schemata
 ORDER BY schema_name;
 ```
 
-Ví dụ:
+## Chọn quy trình thay đổi
 
-```text
-information_schema
-nomad_diary
-pg_catalog
-public
-```
+| Tình trạng database | Quy trình |
+| --- | --- |
+| Database local/test rỗng, có thể xóa | Chạy schema đầy đủ, tùy chọn seed |
+| Database đã có dữ liệu | Chạy migration chưa áp dụng |
+| Production | Snapshot, migration tăng dần, kiểm tra; không seed |
 
----
+### Khởi tạo database rỗng
 
-# 7. Chạy file khởi tạo database
+> Cảnh báo: `nomad-diary.sql` có `DROP SCHEMA nomad_diary CASCADE`. Không chạy
+> trên database có dữ liệu cần giữ.
 
-File:
-
-```text
-database/nomad-diary.sql
-```
-
-Trong `psql`:
-
-```sql
-\i /home/ubuntu/nomad-diary/database/nomad-diary.sql
-```
-
-Hoặc từ terminal:
+Từ thư mục gốc repository:
 
 ```bash
 psql \
-  --host=nomad-diary-db.c164ase8w3e1.ap-southeast-1.rds.amazonaws.com \
-  --port=5432 \
-  --username=postgres \
-  --dbname=nomad_diary \
-  "sslmode=verify-full sslrootcert=/home/ubuntu/nomad-diary/back-end/src/certs/global-bundle.pem" \
-  --file=/home/ubuntu/nomad-diary/database/nomad-diary.sql
+  -v ON_ERROR_STOP=1 \
+  -f database/nomad-diary.sql \
+  "host=<rds-endpoint> port=5432 dbname=nomad_diary user=<db-user> sslmode=verify-full sslrootcert=$(pwd)/back-end/src/certs/global-bundle.pem"
 ```
 
-Nếu thành công sẽ xuất hiện các thông báo tương tự:
-
-```text
-CREATE SCHEMA
-CREATE TABLE
-CREATE VIEW
-CREATE FUNCTION
-CREATE TRIGGER
-COMMIT
-```
-
----
-
-# 8. Chạy dữ liệu mẫu (Seed)
-
-File:
-
-```text
-database/nomad-diary-seed.sql
-```
-
-Trong `psql`:
-
-```sql
-\i /home/ubuntu/nomad-diary/database/nomad-diary-seed.sql
-```
-
-Hoặc từ terminal:
+Seed chỉ dành cho môi trường development/test có thể xóa:
 
 ```bash
 psql \
-  --host=nomad-diary-db.c164ase8w3e1.ap-southeast-1.rds.amazonaws.com \
-  --port=5432 \
-  --username=postgres \
-  --dbname=nomad_diary \
-  "sslmode=verify-full sslrootcert=/home/ubuntu/nomad-diary/back-end/src/certs/global-bundle.pem" \
-  --file=/home/ubuntu/nomad-diary/database/nomad-diary-seed.sql
+  -v ON_ERROR_STOP=1 \
+  -f database/nomad-diary-seed.sql \
+  "host=<rds-endpoint> port=5432 dbname=nomad_diary user=<db-user> sslmode=verify-full sslrootcert=$(pwd)/back-end/src/certs/global-bundle.pem"
 ```
 
-Seed chỉ ghi các S3 object key mẫu vào `avatar_key`, `thumbnail_key` và `image_key`; lệnh này không upload ảnh lên S3. Backend ghép các key này với `AWS_CLOUDFRONT_IMAGE_BASE_URL` khi trả dữ liệu. Muốn đọc được ảnh seed qua CloudFront, bucket ảnh phải chứa object đúng key trong seed và distribution phải được phép đọc bucket qua OAC. Nếu object chưa tồn tại, CloudFront sẽ trả lỗi từ origin S3.
+> Seed truncate toàn bộ bảng ứng dụng. Không seed production.
 
----
+### Chạy migration
 
-# 9. Kiểm tra các bảng
+Migration hiện có:
 
-Do dự án sử dụng schema `nomad_diary`, kiểm tra bằng:
+```text
+database/migrations/20260814_store_trip_locations.sql
+```
+
+Chạy từ thư mục gốc:
+
+```bash
+psql \
+  -v ON_ERROR_STOP=1 \
+  -f database/migrations/20260814_store_trip_locations.sql \
+  "host=<rds-endpoint> port=5432 dbname=nomad_diary user=<db-user> sslmode=verify-full sslrootcert=$(pwd)/back-end/src/certs/global-bundle.pem"
+```
+
+File migration tự mở transaction và dùng `SET LOCAL search_path TO
+nomad_diary, public`. `ON_ERROR_STOP=1` làm `psql` dừng khi gặp lỗi thay vì
+tiếp tục sang câu lệnh sau.
+
+Repo chưa có migration history table/runner. Người vận hành phải ghi nhận
+migration đã áp dụng theo môi trường để tránh chạy nhầm hoặc bỏ sót.
+
+## Chạy file trong phiên psql
+
+Nếu đã kết nối:
 
 ```sql
-SELECT
-    table_name
+\set ON_ERROR_STOP on
+\i /absolute/path/to/nomad-diary/database/migrations/20260814_store_trip_locations.sql
+```
+
+Luôn dùng đường dẫn tuyệt đối để tránh chạy nhầm file do working directory của
+`psql`.
+
+## Kiểm tra sau migration
+
+Đặt schema cho phiên hiện tại:
+
+```sql
+SET search_path TO nomad_diary, public;
+SHOW search_path;
+```
+
+Liệt kê table:
+
+```sql
+SELECT table_name
 FROM information_schema.tables
 WHERE table_schema = 'nomad_diary'
 ORDER BY table_name;
 ```
 
-Không nên kiểm tra schema `public` vì dự án không tạo bảng tại đó.
-
----
-
-# 10. Thiết lập schema mặc định
-
-Để không cần ghi `nomad_diary.` trước tên bảng:
+Kiểm tra thay đổi `places`:
 
 ```sql
-SET search_path TO nomad_diary;
-```
-
-Kiểm tra:
-
-```sql
-SHOW search_path;
-```
-
-Ví dụ:
-
-```text
- search_path
--------------
- nomad_diary
-```
-
-Sau đó có thể truy vấn:
-
-```sql
-SELECT *
-FROM users;
-```
-
-Thay vì:
-
-```sql
-SELECT *
-FROM nomad_diary.users;
-```
-
-> `SET search_path` chỉ có hiệu lực trong phiên kết nối hiện tại.
-
----
-
-# 11. Kiểm tra dữ liệu
-
-Đếm số bản ghi:
-
-```sql
-SELECT COUNT(*)
-FROM users;
-```
-
-Hoặc:
-
-```sql
-SELECT COUNT(*)
-FROM nomad_diary.users;
-```
-
----
-
-# 12. Xem dữ liệu
-
-```sql
-SELECT *
-FROM users
-LIMIT 10;
-```
-
-Hoặc:
-
-```sql
-SELECT *
-FROM nomad_diary.users
-LIMIT 10;
-```
-
----
-
-# 13. Xem cấu trúc bảng
-
-```sql
-SELECT
-    column_name,
-    data_type,
-    is_nullable
+SELECT column_name, data_type, is_nullable
 FROM information_schema.columns
 WHERE table_schema = 'nomad_diary'
-  AND table_name = 'users'
-ORDER BY ordinal_position;
+  AND table_name = 'places'
+  AND column_name IN ('ward_code', 'catalog_place_id', 'latitude', 'longitude')
+ORDER BY column_name;
 ```
 
----
-
-# 14. Thoát khỏi PostgreSQL
+Kiểm tra index:
 
 ```sql
-\q
+SELECT indexname, indexdef
+FROM pg_indexes
+WHERE schemaname = 'nomad_diary'
+  AND tablename = 'places'
+ORDER BY indexname;
 ```
 
----
+Readiness của backend cũng phải thành công:
 
-# 15. Quy trình khởi tạo database
+```bash
+curl --fail-with-body https://api.nomad-diary.site/health/ready
+```
 
-1. Tạo PostgreSQL trên Amazon RDS.
-2. Đảm bảo EC2 có thể kết nối tới RDS (Security Group và VPC).
-3. Kiểm tra file chứng chỉ `back-end/src/certs/global-bundle.pem`.
-4. Kết nối tới RDS bằng `psql` sử dụng `sslmode=verify-full`.
-5. Chạy `database/nomad-diary.sql`.
-6. Chạy `database/nomad-diary-seed.sql`.
-7. Kiểm tra các bảng trong schema `nomad_diary`.
-8. Thiết lập `search_path` nếu muốn thao tác nhanh hơn.
+## Search path
 
----
+`SET search_path` chỉ có hiệu lực trong phiên hiện tại:
 
-# 16. Lưu ý
+```sql
+SET search_path TO nomad_diary, public;
+SELECT COUNT(*) FROM users;
+```
 
-* Database: `nomad_diary`
-* Schema chính: `nomad_diary`
-* Không lưu bảng trong schema `public`.
-* Luôn kết nối bằng SSL và sử dụng chứng chỉ `global-bundle.pem`.
-* Khi viết truy vấn, ưu tiên:
+Trong application query, ưu tiên tên schema rõ ràng hoặc bảo đảm pool đã đặt
+search path đúng. Không di chuyển table ứng dụng sang schema `public`.
 
-  * `nomad_diary.users`
-  * Hoặc `SET search_path TO nomad_diary;` rồi truy vấn trực tiếp `users`.
+## Rollback và sự cố
+
+- Nếu migration chưa commit và đang lỗi trong transaction, `ROLLBACK;`.
+- Nếu migration đã commit, không tự chạy schema reset để “sửa nhanh”.
+- Dùng migration ngược đã review hoặc restore snapshot theo kế hoạch vận hành.
+- Khi lỗi SSL, kiểm tra hostname, CA path, quyền đọc file và thời gian hệ thống.
+- Khi timeout, kiểm tra VPC route, subnet, Security Group và Network ACL.
+- Khi permission denied, kiểm tra owner/grant; không đổi sang superuser rộng hơn
+  nếu chưa xác định câu lệnh cần quyền gì.
+
+## Checklist production
+
+- [ ] Xác nhận AWS account/region và endpoint.
+- [ ] Xác nhận database/user bằng query read-only.
+- [ ] Snapshot/backup hoàn tất.
+- [ ] Migration đã review và chưa được áp dụng.
+- [ ] Chạy với SSL `verify-full` và `ON_ERROR_STOP=1`.
+- [ ] Kiểm tra column/index/data sau migration.
+- [ ] Kiểm tra backend `/health/ready`.
+- [ ] Ghi nhận migration và thời điểm áp dụng.
+
+## Tài liệu liên quan
+
+- [Database](README.md)
+- [Tổng quan repository](../README.md)
+- [Backend API](../back-end/README.md)
+- [Mục lục tài liệu](../docs/README.md)
